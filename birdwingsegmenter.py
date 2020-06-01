@@ -4,7 +4,8 @@ output the appropriate dictionary to be used in MachUpX
 """
 import numpy as np
 import math
-from os import path
+import os
+import airfoil_db as adb
 
 # --------------------------- Function definitions -------------------------------------------
 
@@ -239,63 +240,80 @@ def geom_def(le_pts, te_pts):
     return quarter_chord, full_chord, segment_span, full_span_frac, full_sweep, full_dihedral, full_twist
 
 # ----------------------------------------------------------------------------------------------------------------------
-# ----------------------------------- Function that stores all airfoil data --------------------------------------------
+# --------------------------------- Function that creates the airfoil dictionary ---------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
 
 
 def build_airfoil_dict(segments_re, airfoil_list):
+    # initialize arrays
     airfoil_file = airfoil_list
+    geometry_file = airfoil_list
+    max_alpha = [0] * 7
+    min_alpha = [0] * 7
 
     # create the file name for each airfoil at the applicable Re
-    for i in range(0, 8):
-        airfoil_file[i] = str(airfoil_list[i]) + "_" + str(int(segments_re[i])) + ".csv"
-        if not path.exists(airfoil_file[i]):
+    for i in range(0, 7):
+        airfoil_file[i] = str(airfoil_list[i]).lower() + "_Re" + str(int(segments_re[i])) + ".0.txt"
+        geometry_file[i] = str(airfoil_list[i]).lower() + ".txt"
+
+        orig_dir = os.getcwd()
+        new_dir = orig_dir + "\\airfoildat\\" + airfoil_list[i]
+        os.chdir(new_dir)
+
+        if not os.path.exists(airfoil_file[i]):
             wait = input("Create new airfoil file %s. Press enter to continue." % (airfoil_file[i]))
+        # read in the airfoil file to save the maximum and minimum available alpha
+        if i > 0:
+            curr_airfoil = np.loadtxt(airfoil_file, skiprows= 1)
+            max_alpha[i] = max(curr_airfoil[:,0])
+            min_alpha[i] = min(curr_airfoil[:,0])
+
+        os.chdir(orig_dir)
 
     # should have seven discrete airfoils (or airfoils at different Re) for each wing/body
-    airfoil_dict = {
-            airfoil_list[0]: {
-                "input_file": airfoil_file[0],
-                "geometry": {
-                    "NACA": "0020"}},
-            airfoil_list[1]: {
-                "input_file": airfoil_file[1],
-                "geometry": {
-                    "NACA": "0015"}},
-            airfoil_list[2]: {
-                "input_file": airfoil_file[2],
-                "geometry": {
-                    "NACA": "0010"}},
-            airfoil_list[3]: {
-                "input_file": airfoil_file[3],
-                "geometry": {
-                    "NACA": "0010"}},
-            airfoil_list[4]: {
-                "input_file": airfoil_file[4],
-                "geometry": {
-                    "NACA": "0010"}},
-            airfoil_list[5]: {
-                "input_file": airfoil_file[4],
-                "geometry": {
-                    "NACA": "0010"}},
-            airfoil_list[6]: {
-                "input_file": airfoil_file[4],
-                "geometry": {
-                    "NACA": "0010"}},
-            airfoil_list[7]: {
-                "input_file": airfoil_file[4],
-                "geometry": {
-                    "NACA": "0010"}}
-    }
+    airfoil_dict = {}
+    for i in range(0, 7):
+        airfoil_dict[airfoil_list[i]] = {
+            "type": "database",
+            "input_file": airfoil_file[i],
+            "outline_points": geometry_file[i]}
 
-    return airfoil_dict
+    return airfoil_dict, max_alpha, min_alpha
+
+# ----------------------------------------------------------------------------------------------------------------------
+# --------------------------------- Function that creates the airfoil dictionary ---------------------------------------
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+def check_stalled_sections(final_alpha, final_sp_frac, max_alpha, min_alpha, full_span_frac):
+    num_nodes = len(final_alpha)
+    stall = [False]*num_nodes
+
+    for i in range(0,num_nodes):
+        if final_sp_frac[i] < full_span_frac[1]:
+            if final_alpha[i] > max_alpha[0] | final_alpha[i] < min_alpha[0]:
+                stall[i] = True
+        if final_sp_frac[i] > full_span_frac[0] | final_sp_frac[i] < full_span_frac[2]:
+            if final_alpha[i] > max_alpha[1] | final_alpha[i] < min_alpha[1]:
+                stall[i] = True
+        if final_sp_frac[i] > full_span_frac[1] | final_sp_frac[i] < full_span_frac[3]:
+            if final_alpha[i] > max_alpha[2] | final_alpha[i] < min_alpha[2]:
+                stall[i] = True
+        if final_sp_frac[i] > full_span_frac[2] | final_sp_frac[i] < full_span_frac[4]:
+            if final_alpha[i] > max_alpha[3] | final_alpha[i] < min_alpha[3]:
+                stall[i] = True
+        if final_sp_frac[i] > full_span_frac[3] | final_sp_frac[i] < full_span_frac[4]:
+            if final_alpha[i] > max_alpha[4] | final_alpha[i] < min_alpha[4]:
+                stall[i] = True
+
+    return stall
 
 # ----------------------------------------------------------------------------------------------------------------------
 # ------------------------------------- Function that defines the bird body --------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def body_segment(body_root_airfoil, body_tip_airfoil, w_2, body_len, root_chord):
+def build_body_dict(body_root_airfoil, body_tip_airfoil, w_2, body_len, root_chord):
     y_body = np.linspace(0, w_2, 30)
     chord_body = body_len*np.cos((1/w_2)*math.acos(root_chord/body_len)*y_body)
     y_body = y_body/w_2
@@ -318,7 +336,7 @@ def body_segment(body_root_airfoil, body_tip_airfoil, w_2, body_len, root_chord)
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def create_wing_dict(bird_cg, bird_weight, segment_span, root_c4, full_ch, full_tw, full_sw, full_di,
+def build_segment_wing_dict(bird_cg, bird_weight, segment_span, root_c4, full_ch, full_tw, full_sw, full_di,
                      body_dict, airfoil_list):
     wing_dict = {
         "CG": bird_cg,
@@ -461,63 +479,19 @@ def create_wing_dict(bird_cg, bird_weight, segment_span, root_c4, full_ch, full_
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def create_smooth_wing_dict(bird_cg, bird_weight, segment_span, root_c4, full_span_frac, full_ch,
-                            full_tw, full_sw, full_di, body_dict, airfoil_list):
+def build_smooth_wing_dict(bird_cg, bird_weight, segment_span, root_c4,
+                           full_span_frac, full_ch, full_tw, full_sw,
+                           full_di, body_dict, airfoil_dict):
 
     wing_dict = {
         "CG": bird_cg,
         "weight": bird_weight,
         "reference": {},
+        # "reference": {"area": total_area,
+        #               "longitudinal_length": np.linalg.norm(root_c4)},
+        #               NEED TO SET THIS UP TO NON-DIMENSIONALIZE BASED ON THE TOTAL WING AREA
         "controls": {},
-        "airfoils": {
-            "NACA0020": {
-                "type": "linear",
-                "aL0": 0.0,
-                "CLa": 6.4336,
-                "CmL0": 0.0,
-                "Cma": 0.00,
-                "CD0": 0.00513,
-                "CD1": 0.0,
-                "CD2": 0.0984,
-                "CL_max": 1.4,
-                "geometry": {
-                    "NACA": "0020"}},
-            "InnerAirfoil": {
-                "type": "linear",
-                "aL0": 0.0,
-                "CLa": 6.4336,
-                "CmL0": 0.0,
-                "Cma": 0.00,
-                "CD0": 0.00513,
-                "CD1": 0.0,
-                "CD2": 0.0984,
-                "CL_max": 1.4,
-                "geometry": {
-                    "NACA": "0010"}},
-            "MidAirfoil": {
-                "type": "linear",
-                "aL0": 0.0,
-                "CLa": 6.4336,
-                "CmL0": 0.0,
-                "Cma": 0.00,
-                "CD0": 0.00513,
-                "CD1": 0.0,
-                "CD2": 0.0984,
-                "CL_max": 1.4,
-                "geometry": {
-                    "NACA": "0010"}},
-            "OuterAirfoil": {
-                "type": "linear",
-                "aL0": 0.0,
-                "CLa": 6.4336,
-                "CmL0": 0.0,
-                "Cma": 0.00,
-                "CD0": 0.00513,
-                "CD1": 0.0,
-                "CD2": 0.0984,
-                "CL_max": 1.4,
-                "geometry": {
-                    "NACA": "0010"}}},
+        "airfoils": airfoil_dict,
         "wings": {
             "body": body_dict,
             "main_wing": {

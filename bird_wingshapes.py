@@ -4,26 +4,22 @@ output the appropriate dictionary to be used in MachUpX
 """
 import pandas as pd
 import numpy as np
-
-# Import the MachUpX module
 import machupX as MX
 import json
 import matplotlib.pyplot as plt
-
 import birdwingsegmenter as bws
 
 # ------------------------------- Import data and initialize ---------------------------------------
 # compute wing segment #1
 wing_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT'
                         '/2020_05_25_OrientedWings.csv')
-
-species_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT'
-                           '/allspeciesdat.csv')
+# VRP is defined as the center location between the two humeral heads
+species_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT/allspeciesdat.csv')
 skipped_configs = []
 previous_species = "initialize"
 
-velocity_list = [5, 10, 20]  # selected test velocities
-alpha_list = range(-10, 10, 1)  # selected angle of attacks
+velocity_list = [10, 20]  # selected test velocities
+alpha_list = np.arrange(-5, 5, 0.5)  # selected angle of attacks
 density = 1.225
 dyn_vis = 1.81E-5
 
@@ -40,13 +36,8 @@ for x in range(0, 10):
     curr_wing_name = wing_data["species"][x] + "_WingID" + wing_data["WingID"][x] + wing_data["TestID"][
         x] + "_Frame" + str(wing_data["frameID"][x])
 
-    bird_cg = [0, 0, 0]
-
     # --------------------------------------------------------------------------------------------
     # define the current points relating the each numerical point
-    # NOTE: as required subtract the adjust CG of the aircraft from each pt here
-    # this ensures that the twist and sweep occur properly
-
     curr_joints = np.array([[wing_data["Pt2X"][x], wing_data["Pt2Y"][x], wing_data["Pt2Z"][x]],
                             [wing_data["Pt3X"][x], wing_data["Pt3Y"][x], wing_data["Pt3Z"][x]],
                             [wing_data["Pt4X"][x], wing_data["Pt4Y"][x], wing_data["Pt4Z"][x]]])
@@ -59,33 +50,39 @@ for x in range(0, 10):
                         [wing_data["Pt11X"][x], wing_data["Pt11Y"][x], wing_data["Pt11Z"][x]],
                         [wing_data["Pt12X"][x], wing_data["Pt12Y"][x], wing_data["Pt12Z"][x]]])
     curr_edges = ["LE", "TE", "LE", "TE", "NA", "TE", "LE"]
+
     # outputs the leading and trailing edge and airfoil of each segment
     curr_le, curr_te, airfoil_list = bws.segmenter(curr_pts, curr_edges, curr_joints)
+
     if curr_le is None:
         print(curr_wing_name + ' is too tucked. Continuing to next configuration.')
         skipped_configs.append(curr_wing_name)
         continue
     else:
-        # ---------------------- Body specific data ---------------------------------
-        # only update if the species has changed - saves time
+        # ---------------------- Bird specific data ---------------------------------
+        # only update if the species has changed
         curr_species = wing_data["species"][x]
 
         if previous_species != curr_species:
             species_series = species_data.species
             species_list = species_series.values.tolist()
+            # find the index that corresponds to the current species
             curr_index = species_list.index(curr_species)
-
+            # define bird specific geometry
             bird_weight = species_data.mass[curr_index]*9.81  # N
             body_len = species_data.l[curr_index]  # m
+            w_2 = 0.5 * species_data.w[curr_index]  # m
+            # define bird specific airfoils
             body_root_airfoil = species_data.body_root_airfoil[curr_index]
-            body_tip_airfoil = species_data.body_tip_airfoil[curr_index]
             inner_airfoil = species_data.proximal_airfoil[curr_index]
             mid_airfoil = species_data.mid_airfoil[curr_index]
             outer_airfoil = species_data.distal_airfoil[curr_index]
-            w_2 = 0.5*species_data.w[curr_index]  # m
+            # define CG relative to the VRP
+            bird_cg = [species_data.CG_x[curr_index], species_data.CG_y[curr_index], species_data.CG_z[curr_index]]
 
         previous_species = curr_species
-
+        # ---------------------- Wing geometry data ---------------------------------
+        # determine the appropriate geometry along the wingspan
         quarter_chord, full_chord, segment_span, full_span_frac, full_sweep, full_dihedral, full_twist = \
             bws.geom_def(curr_le, curr_te)
 
@@ -96,29 +93,21 @@ for x in range(0, 10):
 
         # calculate the average chord of each segment
         all_chord = [body_len] + full_chord
-        mean_chord = [0.0]*6
-
-        for checkRe in range(0, 6):
-            mean_chord[checkRe] = 0.5 * (all_chord[checkRe + 1] + all_chord[checkRe])
-
+        root_chord = full_chord[0]
+        # airfoil for each segment from proximal to distal
+        all_airfoils = [body_root_airfoil] + airfoil_list_updated
+        # calculate the average Re of each segment
+        all_chord = [body_len] + full_chord
 
 # ---------------------------------------- Loop through the test velocities --------------------------------------
-        for v in range(0, 3):
+        for v in range(0, len(velocity_list)):
             test_v = velocity_list[v]
 
-            # airfoil for each segment from proximal to distal
-            all_airfoils = [body_root_airfoil] + [body_tip_airfoil] + airfoil_list_updated
-            # calculate the average Re of each segment
-            all_chord = [body_len] + full_chord
+            # calculates the Re at each section slice
+            Re_section = density*test_v*all_chord/dyn_vis
 
-            # rounds the average Re section to the nearest 1E4
-            Re_section = density*test_v*np.array(mean_chord)/dyn_vis
-            # set both body tip Re and wing root Re as based on the wing root chord
-            Re_section = np.insert(Re_section, 1, Re_section[0])
-            Re_section = np.insert(Re_section, 2, (density * test_v * all_chord[1] / dyn_vis))
-
-            # Rounds the Re as appropriate
-            for re in range(0, 8):
+            # Round the Reynolds number
+            for re in range(0, 7):
                 if Re_section[re] > 1E5:
                     Re_section[re] = round_high(Re_section[re])  # rounds to nearest 5E4 above 1E5
                 else:
@@ -127,19 +116,19 @@ for x in range(0, 10):
                     else:
                         Re_section[re] = round(Re_section[re], -4)  # rounds to nearest 1E4 below 1E5
 
-            # create the airfoil dictionary component
-            # curr_airfoil_dict = bws.build_airfoil_dict(Re_section, all_airfoils)
+# -------------------------------------- Create the required dictionaries --------------------------------------
 
-# ---------------------------------------- Create the wing dictionary --------------------------------------
-            root_chord = full_chord[0]
-
-            body_dict = bws.body_segment(body_root_airfoil, body_tip_airfoil, w_2, body_len, root_chord)
-            # commented one allows the wing to be created in one segment - airfoil interpolator problem
-            # curr_wing_dict = bws.create_smooth_wing_dict(bird_cg, bird_weight, segment_span, quarter_chord[0, :], full_span_frac,
+            # 1. create the airfoil dictionary
+            curr_airfoil_dict, max_alpha, min_alpha = bws.build_airfoil_dict(Re_section, all_airfoils)
+            # 2. create the body dictionary
+            curr_body_dict = bws.build_body_dict(body_root_airfoil, w_2, body_len, root_chord)
+            # 3. create the full wing dictionary
+            curr_wing_dict = bws.build_smooth_wing_dict(bird_cg, bird_weight, segment_span, quarter_chord[0, :],
+                                                        full_span_frac, full_chord, full_twist, full_sweep,
+                                                        full_dihedral, total_area, curr_body_dict, curr_airfoil_dict)
+            # curr_wing_dict = bws.build_segment_wing_dict(bird_cg, bird_weight, segment_span, quarter_chord[0, :],
             #                                              full_chord, full_twist, full_sweep, full_dihedral,
-            #                                              body_dict, airfoil_list)
-            curr_wing_dict = bws.create_wing_dict(bird_cg, bird_weight, segment_span, quarter_chord[0, :], full_chord,
-                                                  full_twist, full_sweep, full_dihedral, body_dict, airfoil_list)
+            #                                              body_dict, curr_airfoil_dict)
 
 # ---------------------------------------- Set Flight Conditions --------------------------------------
 
@@ -180,45 +169,20 @@ for x in range(0, 10):
                 my_scene.export_stl(filename="test.stl")
                 curr_dist = my_scene.distributions()
 
-                x = curr_dist[curr_wing_name]["segment5_left"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment4_left"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment3_left"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment2_left"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment1_left"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment1_right"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment2_right"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment3_right"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment4_right"]["cpy"] +\
-                    curr_dist[curr_wing_name]["segment5_right"]["cpy"]
+                final_alpha = curr_dist[curr_wing_name]["main_wing_right"]["alpha"]
+                final_sp_frac = curr_dist[curr_wing_name]["main_wing_right"]["span_frac"]
 
-                y = curr_dist[curr_wing_name]["segment5_left"]["cpx"] +\
-                    curr_dist[curr_wing_name]["segment4_left"]["cpx"] +\
-                    curr_dist[curr_wing_name]["segment3_left"]["cpx"] +\
-                    curr_dist[curr_wing_name]["segment2_left"]["cpx"] +\
-                    curr_dist[curr_wing_name]["segment1_left"]["cpx"] +\
-                    curr_dist[curr_wing_name]["segment1_right"]["cpx"] + \
-                    curr_dist[curr_wing_name]["segment2_right"]["cpx"] + \
-                    curr_dist[curr_wing_name]["segment3_right"]["cpx"] + \
-                    curr_dist[curr_wing_name]["segment4_right"]["cpx"] + \
-                    curr_dist[curr_wing_name]["segment5_right"]["cpx"]
+                # check if any sectional airfoil is too high or low relative to the XFoil analysis
+                stall_check = bws.check_stalled_sections(final_alpha, final_sp_frac,
+                                                         max_alpha, min_alpha, full_span_frac)
 
-                y2 = curr_dist[curr_wing_name]["segment5_left"]["cpz"] +\
-                    curr_dist[curr_wing_name]["segment4_left"]["cpz"] +\
-                    curr_dist[curr_wing_name]["segment3_left"]["cpz"] +\
-                    curr_dist[curr_wing_name]["segment2_left"]["cpz"] +\
-                    curr_dist[curr_wing_name]["segment1_left"]["cpz"] +\
-                    curr_dist[curr_wing_name]["segment1_right"]["cpz"] + \
-                    curr_dist[curr_wing_name]["segment2_right"]["cpz"] + \
-                    curr_dist[curr_wing_name]["segment3_right"]["cpz"] + \
-                    curr_dist[curr_wing_name]["segment4_right"]["cpz"] + \
-                    curr_dist[curr_wing_name]["segment5_right"]["cpz"]
+                # verify that MachUp quarter chord matches the desired chord
 
+                x = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
 
-                # x = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
-                #
-                # y = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
-                #
-                # y2 = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
+                y = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
+
+                y2 = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
 
                 x_c4 = [quarter_chord[0][1], quarter_chord[1][1], quarter_chord[2][1],
                         quarter_chord[3][1], quarter_chord[4][1]] + (w_2-quarter_chord[0][1])

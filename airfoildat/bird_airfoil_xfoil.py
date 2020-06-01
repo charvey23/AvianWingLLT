@@ -1,51 +1,37 @@
 """
-The purpose of this file is to read in the selected avian airfoils and to create the appropriate XFoil data base files
-across the specified Re
+The purpose of this file is to read in the selected avian airfoils and run XFOIL across the specified Re
+Still requires a good amount of manual intervention
 """
 import airfoil_db as adb
 import math as m
 
 # read in the current airfoil .txt file - set up so top comes first
-geometry_file = "e420.txt"
-# save name of airfoil for later
-airfoil_name, type_of_file = geometry_file.split(".")
+geometry_file = "lius20.txt"
+airfoil_name, type_of_file = geometry_file.split(".") # save name of airfoil for later
 
 airfoil_input = {
     "type": "database",
     "geometry": {
         "outline_points": geometry_file,
         "top_first": True
-        # "NACA" : "9412"
-    }
+        # "NACA": "3603"
+        }
 }
+
 # define the current airfoil class
-airfoil = adb.Airfoil("E420", airfoil_input, verbose=False)
-#set so alpha vaires from -20 to 20 with 0.5deg
-alpha_range = [m.radians(-20.0), m.radians(20.0)]
-alpha_steps = 81
-# define the two test ranges for the airfoil
-re_range_low = [10000, 100000]
-re_steps_low = 10
-re_range_hi = [150000, 800000]
-re_steps_hi = 8
+airfoil = adb.Airfoil(airfoil_name, airfoil_input, verbose=False)
 
-dof_low = {
-    "alpha": {"range": alpha_range, "steps": alpha_steps, "index": 1},
-    "Rey": {"range": re_range_low, "steps": re_steps_low, "index": 2},
-    "Mach": 0.03
-    }
+# --- Define the test ranges for the airfoil
+alpha_range = [m.radians(-20), m.radians(0)]  # set so alpha varies from -10 to 10 with 0.25deg
+alpha_steps = int((m.degrees(alpha_range[1]) - m.degrees(alpha_range[0]))*20 + 1)
 
-dof_hi = {
+re_range = [400000, 400000]  # set so re varies with 5E4deg
+re_steps = int((re_range[1] - re_range[0])/50000 + 1)
+
+dof = {
     "alpha": {"range": alpha_range, "steps": alpha_steps, "index": 1},
-    "Rey": {"range": re_range_hi, "steps": re_steps_hi, "index": 2},
-    "Mach": 0.03
-    }
+    "Rey": {"range": re_range, "steps": re_steps, "index": 2},
+    "Mach": 0.04}
 
 # Generate or import database
-airfoil.generate_database(degrees_of_freedom=dof_low, max_iter=10000, show_xfoil_output=False)
-curr_filename = airfoil_name + "_low.txt"
-airfoil.export_database(filename=curr_filename)
-
-airfoil.generate_database(degrees_of_freedom=dof_hi, max_iter=10000, show_xfoil_output=False)
-curr_filename = airfoil_name + "_hi.txt"
-airfoil.export_database(filename=curr_filename)
+airfoil.generate_database(degrees_of_freedom=dof, N=300, max_iter=1000, show_xfoil_output=True, verbose=False)
