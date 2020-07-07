@@ -35,7 +35,7 @@ def round_high(number, base=5E4):
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
 
-for x in range(1, 10):
+for x in range(19991, 19992):
     # define the current wing name
     curr_wing_name = wing_data["species"][x] + "_WingID" + wing_data["WingID"][x] + wing_data["TestID"][
         x] + "_Frame" + str(wing_data["frameID"][x])
@@ -183,8 +183,8 @@ for x in range(1, 10):
                 # Initialize Scene object.
                 my_scene = MX.Scene(input_file)
                 # my_scene.display_wireframe(show_vortices=True, show_legend=False)
-                # FM_results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
-                #                                   verbose=True, report_by_segment=True)
+                FM_results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
+                                                   verbose=True, report_by_segment=True)
                 # my_scene.export_stl(filename="test.stl")
                 curr_dist = my_scene.distributions()
 
@@ -217,7 +217,7 @@ for x in range(1, 10):
                           curr_pts[5][2], curr_pts[6][2]]
 
                 # calculate the maximum error on each point
-                build_error = bws.check_build_error(quarter_chord, x, y, z)
+                build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x, y, z)
 
                 plt.plot(y_body, z_body, y, z, y_c4, z_c4, 'bo')
                 plt.show()

@@ -219,9 +219,10 @@ def geom_def(le_pts, te_pts, gam,body_gam, w_2):
 
     # ------------------------ Blend the distributions ------------------------------
 
-    # ------- calculate the dihedral blend of each segment -------
+    # ------- calculate the DIHEDRAL blend of each segment -------
     # input must be in radians
     dis_body_di = np.arctan(-quarter_chord[0, 2] / quarter_chord[0, 1])
+    # -- Initial guess --
     initial_guess_di = discrete_dihedral
     initial_guess_di.insert(0, dis_body_di)  # already in radians
     initial_guess_di = np.array(initial_guess_di) - np.deg2rad(2)  # subtract 2 degrees to undershoot
@@ -236,18 +237,22 @@ def geom_def(le_pts, te_pts, gam,body_gam, w_2):
     full_span_frac = true_span / np.sum(segment_span)
     full_body_frac = body_span / np.sum(body_seg_span)
     true_body_w2 = np.sum(body_seg_span)
-    # ------- calculate the sweep blend of each segment -------
-    # input must be in radians  - the y must be the newly computed true span
+    # ------- calculate the SWEEP blend of each segment -------
+    # the y, gamma and length inputs must be the newly computed true span
     rcy_sw = np.array([true_span[0], true_span[2], true_span[4], true_span[6], true_span[8], true_span[9]]) + true_body_w2
+    gam_sw = np.array([(true_span[1]/true_span[2]), (true_span[3]/true_span[4]),
+                       (true_span[5]/true_span[6]), (true_span[7]/true_span[8])])
+    # input must be in radians
     dis_body_sw = np.arctan(-quarter_chord[0, 0] / true_body_w2)
+    # -- Initial guess --
     initial_guess_sw = discrete_sweep
     initial_guess_sw.insert(0, dis_body_sw)  # already in radians
     initial_guess_sw = np.array(initial_guess_sw) - np.deg2rad(2)
     # solve for sweep
     sol_sw = scipy.optimize.fsolve(solve_blend, initial_guess_sw,
-                                   args=(rcy_sw, quarter_chord[:, 0], gam, body_gam, true_body_w2))
+                                   args=(rcy_sw, quarter_chord[:, 0], gam, full_body_frac[1:5], true_body_w2))
     sweep = np.rad2deg(sol_sw)
-    test_sw = solve_blend(sol_sw, rcy_sw, quarter_chord[:, 0], gam, body_gam, true_body_w2)
+    test_sw = solve_blend(sol_sw, rcy_sw, quarter_chord[:, 0], gam, full_body_frac[1:5], true_body_w2)
 
     # ------------------------ Save the distributions ------------------------------
     # organize the dihedral angles to line up with the span fractions used
@@ -334,9 +339,9 @@ def calc_true_span(di, rcy, gam, body_gam, w_2):
     b2 = di[1] - a2  # boundary condition on the linear slope end di = a*y + b - this is in the 0 to 1 y axis
 
     true_body_seg_len[0] = gam0*seg_len
-    true_body_seg_len[1] = (scipy.integrate.fixed_quad(lambda y: 1 / np.cos(a1 * y + b1), gam0, gam1, n=10))[0]*seg_len
+    true_body_seg_len[1] = (scipy.integrate.fixed_quad(lambda y: 1 / np.cos(a1 * y + b1), gam0, gam1, n=12))[0]*seg_len
     true_body_seg_len[2] = seg_len*(gam2-gam1)/(np.cos(di[0]))
-    true_body_seg_len[3] = (scipy.integrate.fixed_quad(lambda y: 1 / np.cos(a2 * y + b2), gam2, 1, n=10))[0] * seg_len
+    true_body_seg_len[3] = (scipy.integrate.fixed_quad(lambda y: 1 / np.cos(a2 * y + b2), gam2, 1, n=12))[0] * seg_len
 
     for i in range(1, 5):
         true_body_full_span[i] = np.sum(true_body_seg_len[0:i])
@@ -350,7 +355,7 @@ def calc_true_span(di, rcy, gam, body_gam, w_2):
         a = (di[i+2] - di[i+1]) / (1 - gam)  # boundary condition on the linear slope start
         b = di[i+2] - a  # boundary condition on the linear slope end di = a*y + b - this is in the 0 to 1 y axis
         true_seg_len[count] = seg_len*gam/(np.cos(di[i+1]))
-        true_seg_len[count+1] = (scipy.integrate.fixed_quad(lambda y: 1/np.cos(a*y+b), gam, 1, n=10))[0]*seg_len
+        true_seg_len[count+1] = (scipy.integrate.fixed_quad(lambda y: 1 / np.cos(a*y+b), gam, 1, n=12))[0]*seg_len
         count += 2
     # last segment is not blended
     true_seg_len[8] = (rcy[5]-rcy[4]) / (np.cos(di[5]))
