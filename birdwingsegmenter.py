@@ -18,8 +18,11 @@ def point_on_line(y_pos, pt_start, pt_end):
 
 
 def det_pseudo_pt(four_points, too_far, ind_le, ind_te):
-    # pts are defined so that the last point is the further out
-    # too_far should be whether or not that last point is on the "LE" or "TE"
+    # pts are defined so that the last point is the further out and must be on the opposite edge than the 3rd pt
+    # too_far should be whether or not the overshoot point is on the "LE" or "TE"
+
+    # ind_le signifies if either index 0 or 1 is the known leading edge
+    # ind_te signifies if either index 0 or 1 is the known trailing edge
     pseudo_y = four_points[2, 1]
     if too_far == "LE":
         ref_pt = four_points[ind_le, :]
@@ -32,6 +35,37 @@ def det_pseudo_pt(four_points, too_far, ind_le, ind_te):
     p_pt = np.array([pseudo_x, pseudo_y, pseudo_z])
     return p_pt, location
 
+
+def compute_segment(next_index, comp_pts, comp_edges, final_pts_order, edges):
+    next_pt = final_pts_order[next_index, :]
+    next_edge = edges[next_index]
+
+    # 1. Check if next point to discritize (3rd point) is a LE or TE pt
+    # find the next trailing edge point in the final points
+    if next_edge == "LE":
+        overshoot_edge = "TE"
+        if "TE" not in edges[next_index:]:
+            overshoot_index = len(edges) - 1  # make equal to the final point
+        else:
+            overshoot_index = edges[next_index:].index("TE") + next_index
+    else:
+        overshoot_edge = "LE"
+        if "LE" not in edges[next_index:]:
+            overshoot_index = len(edges) - 1  # make equal to the final point
+        else:
+            overshoot_index = edges[next_index:].index("LE") + next_index
+
+    # define the overshoot point and edge and assemble
+    overshoot_pt = final_pts_order[overshoot_index, :]
+    segment_overshoot = np.vstack((comp_pts, next_pt, overshoot_pt))
+
+    # compute the pseudo point that lines up with the next point but on the opposite edge
+    pseudo_pt, loc = det_pseudo_pt(segment_overshoot, overshoot_edge, comp_edges.index("LE"), comp_edges.index("TE"))
+    # define the final segment and the associated edges
+    segment = np.vstack((comp_pts, next_pt, pseudo_pt))
+    segment_edges = [comp_edges[0], comp_edges[1], edges[next_index], loc]
+
+    return segment, segment_edges
 
 # ----------------------------------------------------------------------------------------------------------------------
 # ---------------------------------------- Function that computes the LE & TE ------------------------------------------
@@ -63,100 +97,34 @@ def segmenter(all_pts, all_edges, all_joints):
         # tracks if the point is on the leading or trailing edge
         edges.append(all_edges[np.where(np.isin(available_pts, test_pts[order_y[0], :]))[0][0]])
 
+    # --- Add the last point ---
+    edges.append("NA")
+    last_point = np.delete(available_pts, np.where(np.isin(available_pts, final_pts_order))[0], axis=0)
+    final_pts_order = np.vstack((final_pts_order, last_point))
+
     # Check how tucked the wing is - code will not work for wing shapes with:
-    # 1/2. Pt9 or Pt8 more interior than Pt10
-    # 3. Pt8 more interior than the wrist Pt4
+    # 1. Pt9 more interior than Pt10 2. Pt8 more interior than Pt10 3. Pt8 more interior than the wrist Pt4
     if all_pts[3, 1] < all_pts[1, 1] or all_pts[4, 1] < all_pts[1, 1] or all_pts[4, 1] < all_joints[1, 2]:
-        position = "tucked"
-    else:
-        position = "untucked"
-
-    # --------------------------- Create the sections ---------------------------------------------------
-
-    # ------------------------- Section 1 ------------------------- # this will work for both tucked and untucked wings
-
-    # calculates the pseudo pt location and whether it is on the LE or TE
-    pseudo_pt1, loc1 = det_pseudo_pt(final_pts_order[0:4, :], edges[3], edges[0:2].index("LE"), edges[0:2].index("TE"))
-    segment1 = np.vstack((final_pts_order[0:3, :], pseudo_pt1))
-    edges1 = edges[0:3]
-    edges1.append(loc1)
-
-    # Make segments 2 through 5
-    if position == "tucked":
+        # This position is too tucked and will not work with the current methodology
         le_pts = None
         te_pts = None
         airfoils = None
     else:
-        # ------------------------- Section 2 -------------------------
-        # adjust the input points if two leading edge points are specified after another
-        if edges[3] == "LE" and edges[4] == "LE":  # if pt7 comes right after pt 6
-            segment2_overshoot = np.vstack((segment1[2:4, :], final_pts_order[3, :], final_pts_order[5, :]))
-            overshoot_edge = "TE"
-        else:
-            # take the last two points (pseudo and real) from the previous segment and add in the next two real points
-            segment2_overshoot = np.vstack((segment1[2:4, :], final_pts_order[3:5, :]))
-            overshoot_edge = "LE"
-
-        # compute the pseudo point
-        pseudo_pt2, loc2 = det_pseudo_pt(segment2_overshoot, overshoot_edge,
-                                         edges1[2:4].index("LE"), edges1[2:4].index("TE"))
-        # save final section data points and the LE or TE of the points
-        segment2 = np.vstack((segment2_overshoot[0:3, :], pseudo_pt2))
-        edges2 = edges1[2:4]
-        edges2.append(edges[3])
-        edges2.append(loc2)
-
-        # ------------------------- Section 3 -------------------------
-        segment3_overshoot = np.vstack((segment2[2:4, :], final_pts_order[4:6, :]))
-        overshoot_edge = edges[5]
-
-        # compute the pseudo point
-        pseudo_pt3, loc3 = det_pseudo_pt(segment3_overshoot, overshoot_edge,
-                                         edges2[2:4].index("LE"), edges2[2:4].index("TE"))
-        # save final section data points and the LE or TE of the points
-        segment3 = np.vstack((segment3_overshoot[0:3, :], pseudo_pt3))
-        edges3 = edges2[2:4]
-        edges3.append(edges[4])
-        edges3.append(loc3)
-
-        # ------------------------- Section 4 -------------------------
-        segment4_overshoot = np.vstack((segment3[2:4, :], final_pts_order[5, :], all_pts[4, :]))
-        # need to determine if the pseudo point goes on the top or the bottom based on if pt 7 is closer than pt 9
-        if all_pts[2, 1] < all_pts[3, 1]:
-            overshoot_edge = "LE"
-        else:
-            overshoot_edge = "TE"
-
-        # compute the pseudo point
-        pseudo_pt4, loc4 = det_pseudo_pt(segment4_overshoot, overshoot_edge,
-                                         edges3[2:4].index("LE"), edges3[2:4].index("TE"))
-        # save final section data points and the LE or TE of the points
-        segment4 = np.vstack((segment4_overshoot[0:3, :], pseudo_pt4))
-        edges4 = edges3[2:4]
-        edges4.append(edges[5])
-        edges4.append(loc4)
-
-        # ------------------------- Section 5 -------------------------
-        # this section will always be a triangle
-        last_point = np.delete(available_pts, np.where(np.isin(available_pts, final_pts_order))[0], axis=0)
-        # save final section data points and the LE or TE of the points only includes the previous slice
-        segment5 = np.vstack((segment4[2:4, :]))
-        edges5 = edges4[2:4]
+        # --------------------------- Create the sections ---------------------------------------------------
+        segment1, edges1 = compute_segment(2, final_pts_order[0:2, :], edges[0:2], final_pts_order, edges)
+        segment2, edges2 = compute_segment(3, segment1[2:4, :], edges1[2:4], final_pts_order, edges)
+        segment3, edges3 = compute_segment(4, segment2[2:4, :], edges2[2:4], final_pts_order, edges)
+        segment4, edges4 = compute_segment(5, segment3[2:4, :], edges3[2:4], final_pts_order, edges)
 
         # ---------------------- Calculate the geometric properties of each section ------------------------------------
-
         le_pts = np.vstack((segment1[np.where(np.isin(edges1, "LE"))[0][0], :],
                             segment2[np.where(np.isin(edges2, "LE"))[0][0], :],
                             segment3[np.where(np.isin(edges3, "LE"))[0][0], :],
-                            segment4[np.where(np.isin(edges4, "LE"))[0][0], :],
-                            segment5[np.where(np.isin(edges5, "LE"))[0][0], :],
-                            last_point))
+                            segment4[np.where(np.isin(edges4, "LE"))[0], :], last_point))
         te_pts = np.vstack((segment1[np.where(np.isin(edges1, "TE"))[0][0], :],
                             segment2[np.where(np.isin(edges2, "TE"))[0][0], :],
                             segment3[np.where(np.isin(edges3, "TE"))[0][0], :],
-                            segment4[np.where(np.isin(edges4, "TE"))[0][0], :],
-                            segment5[np.where(np.isin(edges5, "TE"))[0][0], :],
-                            last_point))
+                            segment4[np.where(np.isin(edges4, "TE"))[0], :], last_point))
 
         # Defines what airfoil should be used for which segment based on the location of the main joints
         airfoils = ["InnerAirfoil"]*6
@@ -174,7 +142,7 @@ def segmenter(all_pts, all_edges, all_joints):
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def geom_def(le_pts, te_pts, gam,body_gam, w_2):
+def geom_def(le_pts, te_pts, gam, body_gam, w_2):
     # initialize matrices
     discrete_dihedral = [0.0] * 5
     discrete_sweep = [0.0] * 5
@@ -446,87 +414,6 @@ def build_body_dict(airfoils, true_w_2, body_len, root_chord, body_span_frac, di
         "grid": {"N": 100}}
 
     return body_dict
-
-
-# ----------------------------------------------------------------------------------------------------------------------
-# ------------------------------ Function that creates the final wing dictionary ---------------------------------------
-# ----------------------------------------------------------------------------------------------------------------------
-
-
-def build_segment_wing_dict(bird_cg, bird_weight, segment_span, full_ch, full_tw, full_sw, full_di,
-                            body_dict, airfoil_dict, airfoil_list):
-    wing_dict = {
-        "CG": bird_cg,
-        "weight": bird_weight,
-        "reference": {},
-        "controls": {},
-        "airfoils": airfoil_dict,
-        "wings": {
-            "body": body_dict,
-            "segment1": {
-                "ID": 2,
-                "side": "both",
-                "is_main": True,
-                "connect_to": {"ID": 1},
-                "semispan": segment_span[0],
-                "twist": [[0, full_tw[0]], [1, full_tw[1]]],
-                "sweep": full_sw[0],
-                "dihedral": full_di[0],
-                "chord": [[0, full_ch[0]], [1, full_ch[1]]],
-                "airfoil": [[0, airfoil_list[0]], [1, airfoil_list[1]]],
-                "grid": {"N": 50}},
-            "segment2": {
-                "ID": 3,
-                "side": "both",
-                "is_main": True,
-                "connect_to": {"ID": 2},
-                "semispan": segment_span[1],
-                "twist": [[0, full_tw[1]], [1, full_tw[2]]],
-                "sweep": full_sw[1],
-                "dihedral": full_di[1],
-                "chord": [[0, full_ch[1]], [1, full_ch[2]]],
-                "airfoil": [[0, airfoil_list[1]], [1, airfoil_list[2]]],
-                "grid": {"N": 50}},
-            "segment3": {
-                "ID": 4,
-                "side": "both",
-                "is_main": True,
-                "connect_to": {"ID": 3},
-                "semispan": segment_span[2],
-                "twist": [[0, full_tw[2]], [1, full_tw[3]]],
-                "sweep": full_sw[2],
-                "dihedral": full_di[2],
-                "chord": [[0, full_ch[2]], [1, full_ch[3]]],
-                "airfoil": [[0, airfoil_list[2]], [1, airfoil_list[3]]],
-                "grid": {"N": 50}},
-            "segment4": {
-                "ID": 5,
-                "side": "both",
-                "is_main": True,
-                "connect_to": {"ID": 4},
-                "semispan": segment_span[3],
-                "twist": [[0, full_tw[3]], [1, full_tw[4]]],
-                "sweep": full_sw[3],
-                "dihedral": full_di[3],
-                "chord": [[0, full_ch[3]], [1, full_ch[4]]],
-                "airfoil": [[0, airfoil_list[3]], [1, airfoil_list[4]]],
-                "grid": {"N": 50}},
-            "segment5": {
-                "ID": 6,
-                "side": "both",
-                "is_main": True,
-                "connect_to": {"ID": 5},
-                "semispan": segment_span[4],
-                "twist": full_tw[4],
-                "sweep": full_sw[4],
-                "dihedral": full_di[4],
-                "chord": [[0, full_ch[4]], [1, full_ch[5]]],
-                "airfoil": [[0, airfoil_list[4]], [1, airfoil_list[5]]],
-                "grid": {"N": 50}},
-        }
-    }
-
-    return wing_dict
 
 
 # ----------------------------------------------------------------------------------------------------------------------
