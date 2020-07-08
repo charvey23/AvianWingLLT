@@ -26,14 +26,12 @@ def det_pseudo_pt(four_points, too_far, ind_le, ind_te):
     pseudo_y = four_points[2, 1]
     if too_far == "LE":
         ref_pt = four_points[ind_le, :]
-        location = "LE"
     else:
         ref_pt = four_points[ind_te, :]
-        location = "TE"
 
     pseudo_x, pseudo_z = point_on_line(pseudo_y, ref_pt, four_points[3, :])
     p_pt = np.array([pseudo_x, pseudo_y, pseudo_z])
-    return p_pt, location
+    return p_pt
 
 # ----------------------------------------------------------------------------------------------------------------------
 # ---------------------------------------- Function that computes the LE & TE ------------------------------------------
@@ -59,15 +57,26 @@ def compute_segment(next_index, comp_pts, comp_edges, final_pts_order, edges):
         else:
             overshoot_index = edges[next_index:].index("LE") + next_index
 
+    # -- Adjust inputs if Pt8 is not last --
+    # CAUTION: will only work if Pt8 is second last
+    if next_edge == "NA":
+        overshoot_edge = edges[len(edges) - 1]
+        overshoot_index = len(edges) - 1  # make equal to the final point
+        # set the next edge to be the opposite of the overshoot edge
+        if overshoot_edge == "LE":
+            next_edge = "TE"
+        else:
+            next_edge = "LE"
+
     # define the overshoot point and edge and assemble
     overshoot_pt = final_pts_order[overshoot_index, :]
     segment_overshoot = np.vstack((comp_pts, next_pt, overshoot_pt))
 
     # compute the pseudo point that lines up with the next point but on the opposite edge
-    pseudo_pt, loc = det_pseudo_pt(segment_overshoot, overshoot_edge, comp_edges.index("LE"), comp_edges.index("TE"))
+    pseudo_pt = det_pseudo_pt(segment_overshoot, overshoot_edge, comp_edges.index("LE"), comp_edges.index("TE"))
     # define the final segment and the associated edges
     segment = np.vstack((comp_pts, next_pt, pseudo_pt))
-    segment_edges = [comp_edges[0], comp_edges[1], edges[next_index], loc]
+    segment_edges = [comp_edges[0], comp_edges[1], next_edge, overshoot_edge]
 
     return segment, segment_edges
 
@@ -98,7 +107,13 @@ def segmenter(all_pts, all_edges, all_joints):
         edges.append(all_edges[np.where(np.isin(available_pts, test_pts[order_y[0], :]))[0][0]])
 
     # --- Add the last point ---
-    edges.append("NA")
+    if all_pts[4, 1] == max(all_pts[:, 1]):  # check if pt 8 is last
+        edges.append("NA")
+    else:
+        if all_pts[2, 1] == max(all_pts[:, 1]):  # check if pt 7 is last
+            edges.append("LE")
+        else:  # check if pt 9 is last
+            edges.append("TE")
     last_point = np.delete(available_pts, np.where(np.isin(available_pts, final_pts_order))[0], axis=0)
     final_pts_order = np.vstack((final_pts_order, last_point))
 

@@ -35,7 +35,7 @@ def round_high(number, base=5E4):
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
 
-for x in range(52425, 52426):
+for x in range(42666, 42667):
     # define the current wing name
     curr_wing_name = wing_data["species"][x] + "_WingID" + wing_data["WingID"][x] + wing_data["TestID"][
         x] + "_Frame" + str(wing_data["frameID"][x])
