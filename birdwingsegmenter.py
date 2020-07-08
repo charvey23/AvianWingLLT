@@ -35,6 +35,10 @@ def det_pseudo_pt(four_points, too_far, ind_le, ind_te):
     p_pt = np.array([pseudo_x, pseudo_y, pseudo_z])
     return p_pt, location
 
+# ----------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------- Function that computes the LE & TE ------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------------
+
 
 def compute_segment(next_index, comp_pts, comp_edges, final_pts_order, edges):
     next_pt = final_pts_order[next_index, :]
@@ -66,10 +70,6 @@ def compute_segment(next_index, comp_pts, comp_edges, final_pts_order, edges):
     segment_edges = [comp_edges[0], comp_edges[1], edges[next_index], loc]
 
     return segment, segment_edges
-
-# ----------------------------------------------------------------------------------------------------------------------
-# ---------------------------------------- Function that computes the LE & TE ------------------------------------------
-# ----------------------------------------------------------------------------------------------------------------------
 
 
 def segmenter(all_pts, all_edges, all_joints):
@@ -135,7 +135,6 @@ def segmenter(all_pts, all_edges, all_joints):
                     airfoils[i] = "OuterAirfoil"
 
     return le_pts, te_pts, airfoils
-
 
 # ----------------------------------------------------------------------------------------------------------------------
 # --------------------------- Function that computes the key geometry given the LE & TE --------------------------------
@@ -383,7 +382,6 @@ def build_airfoil_dict(segments_re, airfoil_list):
 
     return airfoil_dict
 
-
 # ----------------------------------------------------------------------------------------------------------------------
 # ------------------------------------- Function that defines the bird body --------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
@@ -414,7 +412,6 @@ def build_body_dict(airfoils, true_w_2, body_len, root_chord, body_span_frac, di
         "grid": {"N": 100}}
 
     return body_dict
-
 
 # ----------------------------------------------------------------------------------------------------------------------
 # --------------------------- Function that creates the smoothed final wing dictionary ---------------------------------
