@@ -54,9 +54,11 @@ for x in range(42666, 42667):
                         [wing_data["Pt11X"][x], wing_data["Pt11Y"][x], wing_data["Pt11Z"][x]],
                         [wing_data["Pt12X"][x], wing_data["Pt12Y"][x], wing_data["Pt12Z"][x]]])
     curr_edges = ["LE", "TE", "LE", "TE", "NA", "TE", "LE"]
+    # The number of points that were digitized on the wing - the last two pts should be on the LE and TE of the root
+    no_pts = 7
 
     # outputs the leading and trailing edge and airfoil of each segment
-    curr_le, curr_te, airfoil_list = bws.segmenter(curr_pts, curr_edges, curr_joints)
+    curr_le, curr_te, airfoil_list = bws.segmenter(curr_pts, curr_edges, curr_joints, no_pts)
 
     if curr_le is None:
         print(curr_wing_name + ' is too tucked. Continuing to next configuration.')
@@ -96,23 +98,20 @@ for x in range(42666, 42667):
         # determine the appropriate geometry along the wingspan
         gam = 0.85
         body_gam = [(wsk_2 / w_2), 0.05 + (wsk_2 / w_2), 0.95]
-        quarter_chord, full_chord, segment_span, full_span_frac, dis_span_frac, \
+        quarter_chord, full_chord, airfoil_list, segment_span, full_span_frac, dis_span_frac, \
         wing_sweep, wing_dihedral, full_twist, body_span_frac, true_body_w2, body_sweep, body_dihedral \
-            = bws.geom_def(curr_le, curr_te, gam, body_gam, w_2)
+            = bws.geom_def(curr_le, curr_te, gam, body_gam, w_2, no_pts, airfoil_list)
 
         # replace the placeholder airfoils with the true airfoil names
         airfoil_list_updated = [inner_airfoil if wd == "InnerAirfoil" else wd for wd in airfoil_list]
         airfoil_list_updated = [mid_airfoil if wd == "MidAirfoil" else wd for wd in airfoil_list_updated]
         airfoil_list_updated = [outer_airfoil if wd == "OuterAirfoil" else wd for wd in airfoil_list_updated]
 
-        # calculate the average chord of each segment
-        all_chord = [body_len] + full_chord
-        root_chord = full_chord[0]
-        # airfoil for each segment from proximal to distal
+        all_chord = np.insert(full_chord, 0, body_len)
         # NOTE: body airfoil is added a second time because the edge of the body airfoil will have a different Reynolds
         all_airfoils = [body_root_airfoil] + [body_root_airfoil] + airfoil_list_updated
         # NOTE: root chord is added a second time because the edge of the body airfoil will have a different Reynolds
-        all_chord = [body_len] + [root_chord] + full_chord
+        all_chord = np.insert(all_chord, 1, full_chord[0])
 
 # ---------------------------------------- Loop through the test velocities --------------------------------------
         for v in range(0, len(velocity_list)):
@@ -139,7 +138,7 @@ for x in range(42666, 42667):
 
             curr_airfoil_dict = bws.build_airfoil_dict(Re_section, all_airfoils)
             # 2. create the body dictionary
-            curr_body_dict = bws.build_body_dict(final_airfoil_names[0:3], true_body_w2, body_len, root_chord,
+            curr_body_dict = bws.build_body_dict(final_airfoil_names[0:3], true_body_w2, body_len, full_chord[0],
                                                  body_span_frac, body_dihedral, wing_dihedral[0], body_sweep, wing_sweep[0])
 
             # 3. create the full wing dictionary

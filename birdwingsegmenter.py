@@ -81,10 +81,10 @@ def compute_segment(next_index, comp_pts, comp_edges, final_pts_order, edges):
     return segment, segment_edges
 
 
-def segmenter(all_pts, all_edges, all_joints):
+def segmenter(all_pts, all_edges, all_joints, no_pts):
 
     # keeps a listing of all data points that are in the proper ordering for sectioning, TE then LE at each span
-    final_pts_order = np.vstack((all_pts[6, :], all_pts[5, :]))
+    final_pts_order = np.vstack((all_pts[no_pts-1, :], all_pts[no_pts-2, :]))
 
     # keeps a listing of all data points that have not been sectioned out yet
     available_pts = np.delete(all_pts, np.unique(np.where(all_pts == final_pts_order[0, :])[0]), axis=0)
@@ -96,7 +96,7 @@ def segmenter(all_pts, all_edges, all_joints):
 
     # -------------------------- Determine the sectioning of the current wing ------------------
     # loop 4 times to calculate the different wing sections
-    for i in range(0, 4):
+    for i in range(0, no_pts-3):
         # test to see if Pt 6 or 10 comes first
         test_pts = np.array([test_pts[order_y[1], :], all_pts[(i + 1), :]])
         order_y = np.argsort(test_pts[:, 1])
@@ -142,8 +142,8 @@ def segmenter(all_pts, all_edges, all_joints):
                             segment4[np.where(np.isin(edges4, "TE"))[0], :], last_point))
 
         # Defines what airfoil should be used for which segment based on the location of the main joints
-        airfoils = ["InnerAirfoil"]*6
-        for i in range(0, 6):
+        airfoils = ["InnerAirfoil"]*(no_pts-1)
+        for i in range(0, (no_pts-1)):
             if le_pts[i, 1] > all_joints[1, 1]:
                 airfoils[i] = "MidAirfoil"
                 if le_pts[i, 1] > all_joints[2, 1]:
@@ -156,26 +156,38 @@ def segmenter(all_pts, all_edges, all_joints):
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def geom_def(le_pts, te_pts, gam, body_gam, w_2):
-    # initialize matrices
-    discrete_dihedral = [0.0] * 5
-    discrete_sweep = [0.0] * 5
-    full_twist = [0.0] * 6
-    full_chord = [0.0] * 6
-
-    dis_segment_span = [0.0] * 5
-    dis_true_span = [0.0] * 6
-
-    quarter_chord = np.zeros((6, 3))
-
+def geom_def(le_pts, te_pts, gam, body_gam, w_2, no_pts, airfoils):
+    # initialize only the quarter chord and full_chord
+    quarter_chord = np.zeros(((no_pts-1), 3))
+    full_chord = [0.0] * (no_pts-1)
     # ------- calculate the quarter-chord and total chord at each "slice" -------
-    for i in range(0, 6):
+    for i in range(0, (no_pts-1)):
         quarter_chord[i, :] = le_pts[i, :] + 0.25 * (te_pts[i, :] - le_pts[i, :])
         full_chord[i] = np.linalg.norm(te_pts[i, :] - le_pts[i, :])
 
+    # ---- Write in a check to see if two quarter chord points are closer than 0.5cm
+    ind_red = -1
+    for i in range(0, (no_pts-2)):
+        dif = np.linalg.norm(quarter_chord[i+1, :]-quarter_chord[i, :])
+        if dif < 0.005:
+            ind_red = i + 1
+    # cut the data down to size if required
+    if ind_red > 0:
+        quarter_chord = np.delete(quarter_chord, ind_red, axis=0)
+        full_chord = np.delete(full_chord, ind_red)
+        del airfoils[ind_red]
+        no_pts = no_pts - 1
+
+    # now initialize the rest of the matrices with the updated number of points
+    discrete_dihedral = [0.0] * (no_pts-2)
+    discrete_sweep = [0.0] * (no_pts-2)
+    full_twist = [0.0] * (no_pts-1)
+    dis_segment_span = [0.0] * (no_pts-2)
+    dis_true_span = [0.0] * (no_pts-1)
+
     # ------- calculate the span without the dihedral to give the true span at each section -------
     # (only include the y and z) for c/4
-    for i in range(0, 5):
+    for i in range(0, (no_pts-2)):
         dis_segment_span[i] = np.linalg.norm(quarter_chord[i+1, 1:3] - quarter_chord[i, 1:3])
         dis_true_span[i+1] = dis_segment_span[i] + dis_true_span[i]
     dis_span_frac = dis_true_span / np.sum(dis_segment_span)
@@ -185,7 +197,7 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2):
     full_twist[0] = 0.0
 
     # loop through the remaining "slices" - have 5 sections i.e. 6 slices
-    for i in range(0, 5):
+    for i in range(0, (no_pts-2)):
         # calculate wing dihedral of each section, will use to inform initial guess in radians
         discrete_dihedral[i] = np.arctan(-(quarter_chord[i+1, 2]-quarter_chord[i, 2]) /
                                                     (quarter_chord[i+1, 1]-quarter_chord[i, 1]))
@@ -193,7 +205,7 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2):
         discrete_sweep[i] = np.arctan(-(quarter_chord[i+1, 0]-quarter_chord[i, 0]) /
                                                  (dis_segment_span[i]))
         # calculate wing twist
-        if i < 4:
+        if i < (no_pts-3):
             full_twist[i+1] = np.rad2deg(np.arctan(-(quarter_chord[i+1, 2] - le_pts[i+1, 2]) /
                                                    (quarter_chord[i+1, 0] - le_pts[i+1, 0])))
         else:  # the twist at the tip is equal to the previous one
@@ -210,20 +222,24 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2):
     initial_guess_di = np.array(initial_guess_di) - np.deg2rad(2)  # subtract 2 degrees to undershoot
     # solve for dihedral
     sol_di = scipy.optimize.fsolve(solve_blend, initial_guess_di,
-                                   args=(quarter_chord[:, 1], quarter_chord[:, 2], gam, body_gam, w_2))
+                                   args=(quarter_chord[:, 1], quarter_chord[:, 2], gam, body_gam, w_2, no_pts))
     dihedral = np.rad2deg(sol_di)
-    test_di = solve_blend(sol_di, quarter_chord[:, 1], quarter_chord[:, 2], gam, body_gam, w_2)
+
     # ------- calculate the true span of each segment -------
     # input must be in radians
-    segment_span, true_span, body_seg_span, body_span = calc_true_span(sol_di, quarter_chord[:, 1], gam, body_gam, w_2)
+    segment_span, true_span, body_seg_span, body_span = calc_true_span(sol_di, quarter_chord[:, 1], gam, body_gam, w_2, no_pts)
     full_span_frac = true_span / np.sum(segment_span)
     full_body_frac = body_span / np.sum(body_seg_span)
     true_body_w2 = np.sum(body_seg_span)
     # ------- calculate the SWEEP blend of each segment -------
     # the y, gamma and length inputs must be the newly computed true span
-    rcy_sw = np.array([true_span[0], true_span[2], true_span[4], true_span[6], true_span[8], true_span[9]]) + true_body_w2
-    gam_sw = np.array([(true_span[1]/true_span[2]), (true_span[3]/true_span[4]),
-                       (true_span[5]/true_span[6]), (true_span[7]/true_span[8])])
+    rcy_sw = np.array([0.0])
+    count = 2
+    for i in range(0, no_pts-3):
+        rcy_sw = np.append(rcy_sw, true_span[count])
+        count = count + 2
+    rcy_sw = np.append(rcy_sw, true_span[len(true_span)-1])
+
     # input must be in radians
     dis_body_sw = np.arctan(-quarter_chord[0, 0] / true_body_w2)
     # -- Initial guess --
@@ -232,23 +248,22 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2):
     initial_guess_sw = np.array(initial_guess_sw) - np.deg2rad(2)
     # solve for sweep
     sol_sw = scipy.optimize.fsolve(solve_blend, initial_guess_sw,
-                                   args=(rcy_sw, quarter_chord[:, 0], gam, full_body_frac[1:5], true_body_w2))
+                                   args=(rcy_sw, quarter_chord[:, 0], gam, full_body_frac[1:5], true_body_w2, no_pts))
     sweep = np.rad2deg(sol_sw)
-    test_sw = solve_blend(sol_sw, rcy_sw, quarter_chord[:, 0], gam, full_body_frac[1:5], true_body_w2)
 
     # ------------------------ Save the distributions ------------------------------
     # organize the dihedral angles to line up with the span fractions used
     wing_dihedral = []
     wing_sweep = []
 
-    for i in range(1, 6):
+    for i in range(1, (no_pts-1)):
         wing_dihedral = wing_dihedral + [dihedral[i], dihedral[i]]
         wing_sweep = wing_sweep + [sweep[i], sweep[i]]
 
     body_sweep = sweep[0]
     body_dihedral = dihedral[0]
 
-    return quarter_chord, full_chord, segment_span, full_span_frac, dis_span_frac,\
+    return quarter_chord, full_chord, airfoils, segment_span, full_span_frac, dis_span_frac,\
            wing_sweep, wing_dihedral, full_twist, full_body_frac, true_body_w2, body_sweep, body_dihedral
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -256,11 +271,11 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2):
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def solve_blend(x, rcy, rcz_x, wing_gam, body_gam, body_w):
+def solve_blend(x, rcy, rcz_x, wing_gam, body_gam, body_w, no_pts):
     # incoming dihedral angles must be in radians!
     newcon = x
-    segz_x = np.zeros(6)
-    fun = np.empty(6)
+    segz_x = np.zeros(no_pts-1)
+    fun = np.empty(no_pts-1)
 
     # --------------------- Body ---------------------
     # ----- Segment 1 ------
@@ -282,8 +297,7 @@ def solve_blend(x, rcy, rcz_x, wing_gam, body_gam, body_w):
     fun[0] = segz_x_1 + segz_x_2 + segz_x_3 - rcz_x[0]
 
     # --------------------- Wing ---------------------
-    # ----- Segment 1 ------
-    for i in range(1, 5):
+    for i in range(1, (no_pts-2)):
         seg_len = (rcy[i] - rcy[i-1])
         a = (newcon[i+1] - newcon[i])/(1-wing_gam)  # boundary condition on the linear slope start
         b = newcon[i+1] - a  # boundary condition on the linear slope end di = a*y + b - this is in the 0 to 1 y axis
@@ -291,9 +305,8 @@ def solve_blend(x, rcy, rcz_x, wing_gam, body_gam, body_w):
         segz_x[i] = -np.tan(newcon[i])*wing_gam*seg_len - (scipy.integrate.fixed_quad(lambda y: np.tan(a*y+b), wing_gam, 1, n=10))[0]*seg_len
         fun[i] = segz_x[i] - (rcz_x[i]-rcz_x[i-1])
 
-    # ----- Segment 5 ------
-    # last segment is not blended
-    fun[5] = -np.tan(newcon[5])*(rcy[5]-rcy[4]) - (rcz_x[5]-rcz_x[4])
+    # ----- Last Segment ------
+    fun[(no_pts-2)] = -np.tan(newcon[(no_pts-2)])*(rcy[(no_pts-2)]-rcy[(no_pts-3)]) - (rcz_x[(no_pts-2)]-rcz_x[(no_pts-3)])
 
     return fun
 
@@ -302,7 +315,7 @@ def solve_blend(x, rcy, rcz_x, wing_gam, body_gam, body_w):
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def calc_true_span(di, rcy, gam, body_gam, w_2):
+def calc_true_span(di, rcy, gam, body_gam, w_2, no_pts):
 
     # ------------------------------- Body -------------------------------------
     gam0 = body_gam[0]
@@ -329,10 +342,10 @@ def calc_true_span(di, rcy, gam, body_gam, w_2):
         true_body_full_span[i] = np.sum(true_body_seg_len[0:i])
 
     # ------------------------------- Wing -------------------------------------
-    true_full_span = np.zeros(10)
-    true_seg_len = np.zeros(9)
+    true_full_span = np.zeros((no_pts-2)*2)
+    true_seg_len = np.zeros((no_pts-2)*2 - 1)
     count = 0
-    for i in range(0, 4):
+    for i in range(0, (no_pts-3)):
         seg_len = (rcy[i + 1] - rcy[i])
         a = (di[i+2] - di[i+1]) / (1 - gam)  # boundary condition on the linear slope start
         b = di[i+2] - a  # boundary condition on the linear slope end di = a*y + b - this is in the 0 to 1 y axis
@@ -340,9 +353,9 @@ def calc_true_span(di, rcy, gam, body_gam, w_2):
         true_seg_len[count+1] = (scipy.integrate.fixed_quad(lambda y: 1 / np.cos(a*y+b), gam, 1, n=12))[0]*seg_len
         count += 2
     # last segment is not blended
-    true_seg_len[8] = (rcy[5]-rcy[4]) / (np.cos(di[5]))
+    true_seg_len[(no_pts-2)*2 - 2] = (rcy[(no_pts-2)]-rcy[(no_pts-3)]) / (np.cos(di[(no_pts-2)]))
 
-    for i in range(1, 10):
+    for i in range(1, (no_pts-2)*2):
         true_full_span[i] = np.sum(true_seg_len[0:i])
 
     return true_seg_len, true_full_span, true_body_seg_len, true_body_full_span
@@ -436,6 +449,10 @@ def build_body_dict(airfoils, true_w_2, body_len, root_chord, body_span_frac, di
 def build_smooth_wing_dict(bird_cg, bird_weight, segment_span, full_span_frac, full_ch, full_tw, full_sw,
                            full_di, dis_span_frac, body_dict, airfoil_dict, airfoil_list):
 
+    airfoil_array = [[dis_span_frac[0], airfoil_list[2]]]
+    for i in range(1, len(airfoil_list)-2):
+        airfoil_array = airfoil_array + [[dis_span_frac[i], airfoil_list[i+2]]]
+
     wing_dict = {
         "CG": bird_cg,
         "weight": bird_weight,
@@ -454,12 +471,7 @@ def build_smooth_wing_dict(bird_cg, bird_weight, segment_span, full_span_frac, f
                 "sweep": np.ndarray.tolist(np.transpose((np.vstack((full_span_frac, full_sw))))),
                 "dihedral": np.ndarray.tolist(np.transpose((np.vstack((full_span_frac, full_di))))),
                 "chord": np.ndarray.tolist(np.transpose((np.vstack((dis_span_frac, full_ch))))),
-                "airfoil": [[dis_span_frac[0], airfoil_list[2]],
-                            [dis_span_frac[1], airfoil_list[3]],
-                            [dis_span_frac[2], airfoil_list[4]],
-                            [dis_span_frac[3], airfoil_list[5]],
-                            [dis_span_frac[4], airfoil_list[6]],
-                            [dis_span_frac[5], airfoil_list[7]]],
+                "airfoil": airfoil_array,
                 "control_surface": {},
                 "grid": {
                     "N": 300,
