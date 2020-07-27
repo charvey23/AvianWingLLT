@@ -5,24 +5,29 @@ output the appropriate dictionary to be used in MachUpX
 import pandas as pd
 import numpy as np
 import machupX as MX
-import json
 import matplotlib.pyplot as plt
 import birdwingsegmenter as bws
-import scipy
+import airfoil_db as adb
+import warnings
+import json
 
 # ------------------------------- Import data and initialize ---------------------------------------
 # compute wing segment #1
 wing_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT'
                         '/2020_05_25_OrientedWings.csv')
 # limit the data to 0 shoulder sweep and 0 shoulder dihedral for now
+error_file = []
+converged_file = []
 
 # VRP is defined as the center location between the two humeral heads
 species_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT/allspeciesdat.csv')
 skipped_configs = []
 skipped_reason = []
 previous_species = "initialize"
-
-velocity_list = [10, 20]  # selected test velocities
+all_gull_airfoils = []
+all_gull_body = []
+all_gull_wing_dicts = []
+velocity_list = [10]  # selected test velocities
 alpha_list = np.arange(-5, 5, 0.5)  # selected angle of attacks
 density = 1.225
 dyn_vis = 1.81E-5
@@ -34,12 +39,24 @@ def round_high(number, base=5E4):
 
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
-
-for x in range(42666, 42667):
+# wt_wings = [42666, 52686, 52695, 20275, 20114, 86, 52586, 42567, 42666]
+for x in range(0, 68977):
     # define the current wing name
     curr_wing_name = wing_data["species"][x] + "_WingID" + wing_data["WingID"][x] + wing_data["TestID"][
         x] + "_Frame" + str(wing_data["frameID"][x])
+    curr_elbow = wing_data["elbow"][x]
+    curr_manus = wing_data["manus"][x]
 
+    # only investigate the in vivo gliding ranges
+    if curr_elbow < 85:
+        continue
+    if curr_manus < 105:
+        continue
+    # only investigate no sweep and dihedral at shoulder joint for this study
+    if wing_data["sweep"][x] != 0:
+        continue
+    if wing_data["dihedral"][x] != 0:
+        continue
     # --------------------------------------------------------------------------------------------
     # define the current points relating the each numerical point
     curr_joints = np.array([[wing_data["Pt2X"][x], wing_data["Pt2Y"][x], wing_data["Pt2Z"][x]],
@@ -97,7 +114,7 @@ for x in range(42666, 42667):
         # ---------------------- Wing geometry data ---------------------------------
         # determine the appropriate geometry along the wingspan
         gam = 0.85
-        body_gam = [(wsk_2 / w_2), 0.05 + (wsk_2 / w_2), 0.95]
+        body_gam = [(wsk_2 / w_2), 0.1 + (wsk_2 / w_2), 0.9]
         quarter_chord, full_chord, airfoil_list, segment_span, full_span_frac, dis_span_frac, \
         wing_sweep, wing_dihedral, full_twist, body_span_frac, true_body_w2, body_sweep, body_dihedral \
             = bws.geom_def(curr_le, curr_te, gam, body_gam, w_2, no_pts, airfoil_list)
@@ -113,7 +130,7 @@ for x in range(42666, 42667):
         # NOTE: root chord is added a second time because the edge of the body airfoil will have a different Reynolds
         all_chord = np.insert(all_chord, 1, full_chord[0])
 
-# ---------------------------------------- Loop through the test velocities --------------------------------------
+        # -------------------------------------- Loop through the test velocities --------------------------------------
         for v in range(0, len(velocity_list)):
             test_v = velocity_list[v]
 
@@ -132,24 +149,21 @@ for x in range(42666, 42667):
                 # acquire the final names
                 final_airfoil_names[re] = str(all_airfoils[re]).lower() + "_Re" + str(int(Re_section[re]))
 
-# -------------------------------------- Create the required dictionaries --------------------------------------
+            # ----------------------------------- Create the required dictionaries -------------------------------------
 
             # 1. create the airfoil dictionary
-
             curr_airfoil_dict = bws.build_airfoil_dict(Re_section, all_airfoils)
+
             # 2. create the body dictionary
-            curr_body_dict = bws.build_body_dict(final_airfoil_names[0:3], true_body_w2, body_len, full_chord[0],
+            curr_body_dict, area_body = bws.build_body_dict(final_airfoil_names[0:3], true_body_w2, body_len, full_chord[0],
                                                  body_span_frac, body_dihedral, wing_dihedral[0], body_sweep, wing_sweep[0])
 
             # 3. create the full wing dictionary
             curr_wing_dict = bws.build_smooth_wing_dict(bird_cg, bird_weight, segment_span, full_span_frac, full_chord,
                                                         full_twist, wing_sweep, wing_dihedral, dis_span_frac,
                                                         curr_body_dict, curr_airfoil_dict, final_airfoil_names)
-            # curr_wing_dict = bws.build_segment_wing_dict(bird_cg, bird_weight, segment_span, quarter_chord[0, :],
-            #                                              full_chord, full_twist, full_sweep, full_dihedral,
-            #                                              body_dict, curr_airfoil_dict)
 
-# ---------------------------------------- Set Flight Conditions --------------------------------------
+            # ---------------------------------------- Set Flight Conditions --------------------------------------
 
             test_aoa = 0
             test_beta = 0
@@ -163,8 +177,9 @@ for x in range(42666, 42667):
                         "distributions": {}},
                     "solver": {
                         "type": "nonlinear",
-                        "relaxation": 0.01,
-                        "max_iterations": 50
+                        "relaxation": 0.02,
+                        "max_iterations": 100,
+                        'convergence': 1e-6
                     },
                     "units": "SI",
                     "scene": {
@@ -178,45 +193,76 @@ for x in range(42666, 42667):
                                     "alpha": test_aoa}, }}}
                 }
 
-                # ---------------------------------------- Analyze output --------------------------------------
+                # ---------------------------------------- Prepare scene --------------------------------------
                 # Initialize Scene object.
                 my_scene = MX.Scene(input_file)
-                # my_scene.display_wireframe(show_vortices=True, show_legend=False)
-                # FM_results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
-                #                                    verbose=True, report_by_segment=True)
-                # my_scene.export_stl(filename="test.stl")
-                curr_dist = my_scene.distributions()
+                my_scene.set_err_state(not_converged="warn", database_bounds="warn")
+                my_scene.export_dxf(filename=curr_wing_name+".stl", section_resolution=100)
 
-                # put in check that computes the error between the known quarter chord and the resultant quarter chord
-                # if greater than a preset tolerance then skip this wing
+                # ---------------------------------------- Solve forces --------------------------------------
+                try:
+                    results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
+                                                    verbose=True, report_by_segment=True)
+                    curr_dist = my_scene.distributions()
+                except MX.SolverNotConvergedError as err_msg:
+                    converged = 0
+                    err = "convergence"
+                except adb.DatabaseBoundsError as err_msg:
+                    converged = 0
+                    err = "bounds"
+                except UserWarning as err_msg:
+                    converged = 0
+                    err = err_msg
+                except:
+                    converged = 0
+                    err = "unknown"
+                else:
+                    converged = 1
+                    err = "None"
 
-                # verify that MachUp quarter chord matches the desired chord
+                if converged == 0:
+                    print(curr_wing_name, "did not save because of a", err, "error")
+                    error_file.append([curr_wing_name, curr_elbow, curr_manus, test_aoa, err])
+                    curr_dist = my_scene.distributions()  # to check that it was input correctly
+                else:
+                    print(curr_wing_name, "converged!")
 
-                y = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
-                x = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
-                z = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
+                    # verify that MachUp quarter chord matches the desired chord
+                    y = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
+                    x = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
+                    z = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
+                    x_c4 = [row[0] for row in quarter_chord]
+                    y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
+                    z_c4 = [row[2] for row in quarter_chord]
+                    # calculate the total maximum error on the estimated shape
+                    build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x, y, z)
+
+                    converged_file.append([curr_wing_name, curr_elbow, curr_manus, area_body, test_aoa,
+                                           results, build_error])
+                    # save distributions
+                    with open(curr_wing_name+"_curr_dis.txt", 'w') as f:
+                        json.dumps(curr_dist, f)
 
                 y_body = curr_dist[curr_wing_name]["body_right"]["cpy"]
                 x_body = curr_dist[curr_wing_name]["body_right"]["cpx"]
                 z_body = curr_dist[curr_wing_name]["body_right"]["cpz"]
 
-                x_c4 = [quarter_chord[0][0], quarter_chord[1][0], quarter_chord[2][0], quarter_chord[3][0],
-                        quarter_chord[4][0], quarter_chord[5][0]]
-                y_c4 = [quarter_chord[0][1], quarter_chord[1][1], quarter_chord[2][1],
-                        quarter_chord[3][1], quarter_chord[4][1], quarter_chord[5][1]] - (quarter_chord[0][1]) + w_2
-                z_c4 = [quarter_chord[0][2], quarter_chord[1][2],
-                        quarter_chord[2][2], quarter_chord[3][2],
-                        quarter_chord[4][2], quarter_chord[5][2]]
+                x_true = [row[0] for row in curr_pts]
+                y_true = [row[1] for row in curr_pts] - curr_pts[6][1] + w_2
+                z_true = [row[2] for row in curr_pts]
 
-                x_true = [curr_pts[0][0], curr_pts[1][0], curr_pts[2][0], curr_pts[3][0], curr_pts[4][0],
-                          curr_pts[5][0], curr_pts[6][0]]
-                y_true = [curr_pts[0][1], curr_pts[1][1], curr_pts[2][1], curr_pts[3][1], curr_pts[4][1],
-                          curr_pts[5][1], curr_pts[6][1]] - curr_pts[6][1] + w_2
-                z_true = [curr_pts[0][2], curr_pts[1][2], curr_pts[2][2], curr_pts[3][2], curr_pts[4][2],
-                          curr_pts[5][2], curr_pts[6][2]]
+                x_le = [row[0] for row in curr_le]
+                y_le = [row[1] for row in curr_le] - (curr_le[0][1]) + w_2
+                z_le = [row[2] for row in curr_le]
 
-                # calculate the maximum error on each point
-                build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x, y, z)
+                x_te = [row[0] for row in curr_te]
+                y_te = [row[1] for row in curr_te] - (curr_te[0][1]) + w_2
+                z_te = [row[2] for row in curr_te]
+
+                fig = plt.figure()
+                ax = plt.axes(projection='3d')
+                ax.scatter3D(x_true, y_true, z_true, 'gray')
+                ax.scatter3D(x_c4, y_c4, z_c4, 'green')
 
                 plt.plot(y_body, z_body, y, z, y_c4, z_c4, 'bo')
                 plt.show()
@@ -226,5 +272,3 @@ for x in range(42666, 42667):
                 plt.plot(y_true, x_true, 'bo', y_c4, x_c4, 'ro')
                 plt.show()
                 print("hi")
-
-                # print(json.dumps(FM_results[curr_wing_name]["total"], indent=4))

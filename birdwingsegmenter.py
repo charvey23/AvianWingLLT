@@ -118,8 +118,12 @@ def segmenter(all_pts, all_edges, all_joints, no_pts):
     final_pts_order = np.vstack((final_pts_order, last_point))
 
     # Check how tucked the wing is - code will not work for wing shapes with:
-    # 1. Pt9 more interior than Pt10 2. Pt8 more interior than Pt10 3. Pt8 more interior than the wrist Pt4
-    if all_pts[3, 1] < all_pts[1, 1] or all_pts[4, 1] < all_pts[1, 1] or all_pts[4, 1] < all_joints[1, 2]:
+    # 1. Pt9 more interior than Pt10
+    # 2. Pt8 more interior than Pt10
+    # 3. Pt8 more interior than the wrist Pt4
+    # 4. Pt8 more interior than the wrist Pt7
+    if all_pts[3, 1] < all_pts[1, 1] or all_pts[4, 1] < all_pts[1, 1] \
+            or all_pts[4, 1] < all_joints[2, 1] or all_pts[4, 1] < all_pts[2, 1]:
         # This position is too tucked and will not work with the current methodology
         le_pts = None
         te_pts = None
@@ -174,6 +178,7 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2, no_pts, airfoils):
     # cut the data down to size if required
     if ind_red > 0:
         quarter_chord = np.delete(quarter_chord, ind_red, axis=0)
+        le_pts = np.delete(le_pts, ind_red, axis=0)
         full_chord = np.delete(full_chord, ind_red)
         del airfoils[ind_red]
         no_pts = no_pts - 1
@@ -200,16 +205,15 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2, no_pts, airfoils):
     for i in range(0, (no_pts-2)):
         # calculate wing dihedral of each section, will use to inform initial guess in radians
         discrete_dihedral[i] = np.arctan(-(quarter_chord[i+1, 2]-quarter_chord[i, 2]) /
-                                                    (quarter_chord[i+1, 1]-quarter_chord[i, 1]))
+                                         (quarter_chord[i+1, 1]-quarter_chord[i, 1]))
         # calculate wing sweep, will use to inform initial guess
         discrete_sweep[i] = np.arctan(-(quarter_chord[i+1, 0]-quarter_chord[i, 0]) /
-                                                 (dis_segment_span[i]))
+                                      (dis_segment_span[i]))
         # calculate wing twist
         if i < (no_pts-3):
-            full_twist[i+1] = np.rad2deg(np.arctan(-(quarter_chord[i+1, 2] - le_pts[i+1, 2]) /
-                                                   (quarter_chord[i+1, 0] - le_pts[i+1, 0])))
-        else:  # the twist at the tip is equal to the previous one
-            full_twist[i + 1] = full_twist[i]
+            full_twist[i + 1] = np.rad2deg(np.arctan(-(quarter_chord[i+1, 2] - le_pts[i+1, 2]) /
+                                                     (quarter_chord[i+1, 0] - le_pts[i+1, 0])))
+        full_twist[no_pts-2] = full_twist[no_pts-3]  # twist at tip is equal to the previous section
 
     # ------------------------ Blend the distributions ------------------------------
 
@@ -370,7 +374,6 @@ def build_airfoil_dict(segments_re, airfoil_list):
     abs_geom_path = ['0'] * len(segments_re)
     abs_file_path = ['0']*len(segments_re)
     airfoil_name = ['0'] *len(segments_re)
-    geometry_file = ['0']*len(segments_re)
     check_NACA = [False]*len(segments_re)
 
     script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
@@ -421,8 +424,9 @@ def build_body_dict(airfoils, true_w_2, body_len, root_chord, body_span_frac, di
     # analytical solution
 
     # calculate the chord distribution as a cosine function
-    y_body = np.linspace(0, true_w_2, 30)
-    chord_body = body_len*np.cos((1/true_w_2)*math.acos(root_chord/body_len)*y_body)
+    y_body = np.linspace(0, true_w_2, 50)
+    chord_body = body_len*np.cos((1/true_w_2)*math.acos(root_chord/body_len)*y_body)  # cosine body shape
+    area_body = np.trapz(chord_body*0.2, y_body)
     y_body = y_body/true_w_2  # makes into the span fraction of the body
 
     body_dict = {
@@ -435,11 +439,12 @@ def build_body_dict(airfoils, true_w_2, body_len, root_chord, body_span_frac, di
                   [body_span_frac[2], sw_bodycon], [body_span_frac[3], sw_bodycon], [1, sw_root]],
         "dihedral": [[0, 0], [body_span_frac[1], 0],
                      [body_span_frac[2], di_bodycon], [body_span_frac[3], di_bodycon], [1, di_root]],
+        "shear_dihedral": True,
         "chord": np.ndarray.tolist(np.vstack((y_body, chord_body)).T),
-        "airfoil": [[0, airfoils[0]], [body_span_frac[1], airfoils[1]], [1, airfoils[2]]],
-        "grid": {"N": 100}}
+        "airfoil": [[0, airfoils[0]], [body_span_frac[3], airfoils[1]], [1, airfoils[2]]],
+        "grid": {"N": 30}}
 
-    return body_dict
+    return body_dict, area_body
 
 # ----------------------------------------------------------------------------------------------------------------------
 # --------------------------- Function that creates the smoothed final wing dictionary ---------------------------------
@@ -470,12 +475,13 @@ def build_smooth_wing_dict(bird_cg, bird_weight, segment_span, full_span_frac, f
                 "twist": np.ndarray.tolist(np.transpose((np.vstack((dis_span_frac, full_tw))))),
                 "sweep": np.ndarray.tolist(np.transpose((np.vstack((full_span_frac, full_sw))))),
                 "dihedral": np.ndarray.tolist(np.transpose((np.vstack((full_span_frac, full_di))))),
+                "shear_dihedral": True,
                 "chord": np.ndarray.tolist(np.transpose((np.vstack((dis_span_frac, full_ch))))),
                 "airfoil": airfoil_array,
                 "control_surface": {},
                 "grid": {
-                    "N": 300,
-                    "cluster_points": list(dis_span_frac)}},
+                    "N": 150}}
+                    # "cluster_points": list(dis_span_frac)}},
         }
     }
 
@@ -487,13 +493,14 @@ def build_smooth_wing_dict(bird_cg, bird_weight, segment_span, full_span_frac, f
 
 
 def check_build_error(quarter_chord, cpx, cpy, cpz):
-    error_c4 = [0.0]*6
+    no_pts = len(quarter_chord)
+    error_c4 = [0.0]*no_pts
     error_c4[0] = np.sqrt((quarter_chord[0][0] - cpx[0])**2 +
                           (quarter_chord[0][1] - cpy[0])**2 +
                           (quarter_chord[0][2] - cpz[0])**2)
-    error_c4[5] = np.sqrt((quarter_chord[5][0] - cpx[len(cpx)-1])**2 +
-                          (quarter_chord[5][1] - cpy[len(cpx)-1])**2 +
-                          (quarter_chord[5][2] - cpz[len(cpx)-1])**2)
+    error_c4[no_pts-1] = np.sqrt((quarter_chord[no_pts-1][0] - cpx[len(cpx)-1])**2 +
+                          (quarter_chord[no_pts-1][1] - cpy[len(cpx)-1])**2 +
+                          (quarter_chord[no_pts-1][2] - cpz[len(cpx)-1])**2)
 
     for j in range(1, len(quarter_chord)-1):
         error_c4[j] = min(np.sqrt((quarter_chord[j][0] - cpx)**2 +
