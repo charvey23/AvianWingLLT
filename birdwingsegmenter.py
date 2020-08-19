@@ -480,8 +480,8 @@ def build_smooth_wing_dict(bird_cg, bird_weight, segment_span, full_span_frac, f
                 "airfoil": airfoil_array,
                 "control_surface": {},
                 "grid": {
-                    "N": 150}}
-                    # "cluster_points": list(dis_span_frac)}},
+                    "N": 100,
+                    "cluster_points": list(dis_span_frac)}},
         }
     }
 

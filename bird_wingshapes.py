@@ -8,7 +8,7 @@ import machupX as MX
 import matplotlib.pyplot as plt
 import birdwingsegmenter as bws
 import airfoil_db as adb
-import warnings
+import os
 import json
 
 # ------------------------------- Import data and initialize ---------------------------------------
@@ -18,7 +18,7 @@ wing_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPap
 # limit the data to 0 shoulder sweep and 0 shoulder dihedral for now
 error_file = []
 converged_file = []
-
+converged = 1
 # VRP is defined as the center location between the two humeral heads
 species_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT/allspeciesdat.csv')
 skipped_configs = []
@@ -39,8 +39,9 @@ def round_high(number, base=5E4):
 
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
-# wt_wings = [42666, 52686, 52695, 20275, 20114, 86, 52586, 42567, 42666]
-for x in range(0, 68977):
+wt_wings = [42666, 52686, 52695, 20275, 20114, 86, 52586, 42567, 42666]
+# range(0, 68977)
+for x in wt_wings:
     # define the current wing name
     curr_wing_name = wing_data["species"][x] + "_WingID" + wing_data["WingID"][x] + wing_data["TestID"][
         x] + "_Frame" + str(wing_data["frameID"][x])
@@ -165,7 +166,7 @@ for x in range(0, 68977):
 
             # ---------------------------------------- Set Flight Conditions --------------------------------------
 
-            test_aoa = 0
+            test_aoa = 2
             test_beta = 0
 
             if __name__ == "__main__":
@@ -177,9 +178,9 @@ for x in range(0, 68977):
                         "distributions": {}},
                     "solver": {
                         "type": "nonlinear",
-                        "relaxation": 0.02,
-                        "max_iterations": 100,
-                        'convergence': 1e-6
+                        "relaxation": 0.005,
+                        "max_iterations": 10000,
+                        'convergence': 1e-3
                     },
                     "units": "SI",
                     "scene": {
@@ -196,14 +197,31 @@ for x in range(0, 68977):
                 # ---------------------------------------- Prepare scene --------------------------------------
                 # Initialize Scene object.
                 my_scene = MX.Scene(input_file)
+                # set the errors to only warn when iterating
                 my_scene.set_err_state(not_converged="warn", database_bounds="warn")
-                my_scene.export_dxf(filename=curr_wing_name+".stl", section_resolution=100)
+
+                # Only use the following line if printing for wind tunnel analyses
+                # my_scene.export_dxf(number_guide_curves=10, section_resolution=300)
+
+                # save the final reference geometry used in the analysis
+                final_geom = my_scene.get_aircraft_reference_geometry()
 
                 # ---------------------------------------- Solve forces --------------------------------------
                 try:
+                    # get relative path for the loads file
+                    script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
+                    results_file = curr_wing_name + "_U" + str(test_v) + "_AOA" + str(test_aoa) + "_results.json"
+                    abs_res_path = os.path.join(script_dir, "DataConverged\\" + str(results_file))
+
+                    # solve and save the loads
                     results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
-                                                    verbose=True, report_by_segment=True)
-                    curr_dist = my_scene.distributions()
+                                                    verbose=True, report_by_segment=True, filename=abs_res_path)
+
+                    # save the distributions
+                    dist_file = curr_wing_name + "_U" + str(test_v) + "_AOA" + str(test_aoa) + "_dist.json"
+                    abs_dist_path = os.path.join(script_dir, "DataConverged\\" + str(dist_file))
+                    curr_dist = my_scene.distributions(filename=abs_dist_path)
+
                 except MX.SolverNotConvergedError as err_msg:
                     converged = 0
                     err = "convergence"
@@ -221,54 +239,88 @@ for x in range(0, 68977):
                     err = "None"
 
                 if converged == 0:
+                    # Uncoverged case
                     print(curr_wing_name, "did not save because of a", err, "error")
-                    error_file.append([curr_wing_name, curr_elbow, curr_manus, test_aoa, err])
-                    curr_dist = my_scene.distributions()  # to check that it was input correctly
+                    # save the wing info to a file
+                    error_file.append([wing_data["species"][x], wing_data["WingID"][x],
+                                       wing_data["TestID"][x], wing_data["frameID"][x],
+                                       curr_elbow, curr_manus,
+                                       final_geom[0], final_geom[1], final_geom[2],
+                                       test_aoa, test_v, err])
+
+                    if test_aoa == 0:  # only save once per wing
+
+                        # save the distributions for the current wing
+                        script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
+                        dist_file = curr_wing_name + "_dist.json"
+                        abs_dist_path = os.path.join(script_dir, "DataNotConverged\\" + str(dist_file))
+                        curr_dist = my_scene.distributions(filename=abs_dist_path)
+
                 else:
-                    print(curr_wing_name, "converged!")
+                    print(curr_wing_name, "solver converged!")
 
                     # verify that MachUp quarter chord matches the desired chord
-                    y = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
-                    x = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
-                    z = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
+                    y_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
+                    x_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
+                    z_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
                     x_c4 = [row[0] for row in quarter_chord]
                     y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
                     z_c4 = [row[2] for row in quarter_chord]
                     # calculate the total maximum error on the estimated shape
-                    build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x, y, z)
+                    build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x_MX, y_MX, z_MX)
 
-                    converged_file.append([curr_wing_name, curr_elbow, curr_manus, area_body, test_aoa,
-                                           results, build_error])
-                    # save distributions
-                    with open(curr_wing_name+"_curr_dis.txt", 'w') as f:
-                        json.dumps(curr_dist, f)
+                    converged_file.append([wing_data["species"][x], wing_data["WingID"][x],
+                                           wing_data["TestID"][x], wing_data["frameID"][x],
+                                           curr_elbow, curr_manus,
+                                           final_geom[0], final_geom[1], final_geom[2],
+                                           test_aoa, test_v, max(build_error)])
 
-                y_body = curr_dist[curr_wing_name]["body_right"]["cpy"]
-                x_body = curr_dist[curr_wing_name]["body_right"]["cpx"]
-                z_body = curr_dist[curr_wing_name]["body_right"]["cpz"]
+                # y_body = curr_dist[curr_wing_name]["body_right"]["cpy"]
+                # x_body = curr_dist[curr_wing_name]["body_right"]["cpx"]
+                # z_body = curr_dist[curr_wing_name]["body_right"]["cpz"]
+                #
+                # x_true = [row[0] for row in curr_pts]
+                # y_true = [row[1] for row in curr_pts] - curr_pts[6][1] + w_2
+                # z_true = [row[2] for row in curr_pts]
+                #
+                # x_le = [row[0] for row in curr_le]
+                # y_le = [row[1] for row in curr_le] - (curr_le[0][1]) + w_2
+                # z_le = [row[2] for row in curr_le]
+                #
+                # x_te = [row[0] for row in curr_te]
+                # y_te = [row[1] for row in curr_te] - (curr_te[0][1]) + w_2
+                # z_te = [row[2] for row in curr_te]
+                #
+                # y = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
+                # x = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
+                # z = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
+                #
+                # x_c4 = [row[0] for row in quarter_chord]
+                # y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
+                # z_c4 = [row[2] for row in quarter_chord]
 
-                x_true = [row[0] for row in curr_pts]
-                y_true = [row[1] for row in curr_pts] - curr_pts[6][1] + w_2
-                z_true = [row[2] for row in curr_pts]
+                # fig = plt.figure()
+                # ax = plt.axes(projection='3d')
+                # ax.scatter3D(x_true, y_true, z_true, 'gray')
+                # ax.scatter3D(x_c4, y_c4, z_c4, 'green')
 
-                x_le = [row[0] for row in curr_le]
-                y_le = [row[1] for row in curr_le] - (curr_le[0][1]) + w_2
-                z_le = [row[2] for row in curr_le]
+                # plt.plot(y_body, z_body, y_MX, z_MX, y_c4, z_c4, 'bo')
+                # plt.show()
+                # plt.plot(y_body, x_body, y_MX, x_MX, y_c4, x_c4, 'ro')
+                # plt.show()
+                #
+                # plt.plot(y_true, x_true, 'bo', y_c4, x_c4, 'ro')
+                # plt.show()
+                # print("hi")
 
-                x_te = [row[0] for row in curr_te]
-                y_te = [row[1] for row in curr_te] - (curr_te[0][1]) + w_2
-                z_te = [row[2] for row in curr_te]
+# save the data
+file_con = pd.DataFrame(converged_file)
+file_con.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
+                    "ref_S", "ref_l_long", "ref_l_lat", "alpha", "v", "build_error"]
 
-                fig = plt.figure()
-                ax = plt.axes(projection='3d')
-                ax.scatter3D(x_true, y_true, z_true, 'gray')
-                ax.scatter3D(x_c4, y_c4, z_c4, 'green')
+file_err = pd.DataFrame(error_file)
+file_err.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
+                    "ref_S", "ref_l_long", "ref_l_lat", "alpha", "v", "error_reason"]
 
-                plt.plot(y_body, z_body, y, z, y_c4, z_c4, 'bo')
-                plt.show()
-                plt.plot(y_body, x_body, y, x, y_c4, x_c4, 'ro')
-                plt.show()
-
-                plt.plot(y_true, x_true, 'bo', y_c4, x_c4, 'ro')
-                plt.show()
-                print("hi")
+file_con.to_csv('List_ConvergedWings.csv', index=False)
+file_err.to_csv('List_NotConvergedWings.csv', index=False)
