@@ -165,115 +165,118 @@ for x in wt_wings:
                                                         curr_body_dict, curr_airfoil_dict, final_airfoil_names)
 
             # ---------------------------------------- Set Flight Conditions --------------------------------------
+            for alpha in alpha_list:
+                test_aoa = alpha
+                test_beta = 0
 
-            test_aoa = 2
-            test_beta = 0
+                if __name__ == "__main__":
+                    input_file = {
+                        "tag": "Aerodynamic properties of simplified bird wing",
+                        "run": {
+                            "display_wireframe": {"show_legend": True},
+                            "solve_forces": {"non_dimensional": True},
+                            "distributions": {}},
+                        "solver": {
+                            "type": "nonlinear",
+                            "relaxation": 0.01,
+                            "max_iterations": 10000,
+                            'convergence': 1e-3
+                        },
+                        "units": "SI",
+                        "scene": {
+                            "atmosphere": {},
+                            "aircraft": {
+                                curr_wing_name: {
+                                    "file": curr_wing_dict,
+                                    "state": {
+                                        "type": "aerodynamic",
+                                        "velocity": test_v,
+                                        "alpha": test_aoa}, }}}
+                    }
 
-            if __name__ == "__main__":
-                input_file = {
-                    "tag": "Aerodynamic properties of simplified bird wing",
-                    "run": {
-                        "display_wireframe": {"show_legend": True},
-                        "solve_forces": {"non_dimensional": True},
-                        "distributions": {}},
-                    "solver": {
-                        "type": "nonlinear",
-                        "relaxation": 0.005,
-                        "max_iterations": 10000,
-                        'convergence': 1e-3
-                    },
-                    "units": "SI",
-                    "scene": {
-                        "atmosphere": {},
-                        "aircraft": {
-                            curr_wing_name: {
-                                "file": curr_wing_dict,
-                                "state": {
-                                    "type": "aerodynamic",
-                                    "velocity": test_v,
-                                    "alpha": test_aoa}, }}}
-                }
+                    # ---------------------------------------- Prepare scene --------------------------------------
+                    # Initialize Scene object.
+                    my_scene = MX.Scene(input_file)
+                    # set the errors to only warn when iterating
+                    my_scene.set_err_state(not_converged="raise", database_bounds="raise")
 
-                # ---------------------------------------- Prepare scene --------------------------------------
-                # Initialize Scene object.
-                my_scene = MX.Scene(input_file)
-                # set the errors to only warn when iterating
-                my_scene.set_err_state(not_converged="warn", database_bounds="warn")
+                    # Only use the following line if printing for wind tunnel analyses
+                    # my_scene.export_dxf(number_guide_curves=10, section_resolution=300)
 
-                # Only use the following line if printing for wind tunnel analyses
-                # my_scene.export_dxf(number_guide_curves=10, section_resolution=300)
+                    # save the final reference geometry used in the analysis
+                    final_geom = my_scene.get_aircraft_reference_geometry()
 
-                # save the final reference geometry used in the analysis
-                final_geom = my_scene.get_aircraft_reference_geometry()
-
-                # ---------------------------------------- Solve forces --------------------------------------
-                try:
-                    # get relative path for the loads file
-                    script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
-                    results_file = curr_wing_name + "_U" + str(test_v) + "_AOA" + str(test_aoa) + "_results.json"
-                    abs_res_path = os.path.join(script_dir, "DataConverged\\" + str(results_file))
-
-                    # solve and save the loads
-                    results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
-                                                    verbose=True, report_by_segment=True, filename=abs_res_path)
-
-                    # save the distributions
-                    dist_file = curr_wing_name + "_U" + str(test_v) + "_AOA" + str(test_aoa) + "_dist.json"
-                    abs_dist_path = os.path.join(script_dir, "DataConverged\\" + str(dist_file))
-                    curr_dist = my_scene.distributions(filename=abs_dist_path)
-
-                except MX.SolverNotConvergedError as err_msg:
-                    converged = 0
-                    err = "convergence"
-                except adb.DatabaseBoundsError as err_msg:
-                    converged = 0
-                    err = "bounds"
-                except UserWarning as err_msg:
-                    converged = 0
-                    err = err_msg
-                except:
-                    converged = 0
-                    err = "unknown"
-                else:
-                    converged = 1
-                    err = "None"
-
-                if converged == 0:
-                    # Uncoverged case
-                    print(curr_wing_name, "did not save because of a", err, "error")
-                    # save the wing info to a file
-                    error_file.append([wing_data["species"][x], wing_data["WingID"][x],
-                                       wing_data["TestID"][x], wing_data["frameID"][x],
-                                       curr_elbow, curr_manus,
-                                       final_geom[0], final_geom[1], final_geom[2],
-                                       test_aoa, test_v, err])
-
-                    if test_aoa == 0:  # only save once per wing
-
-                        # save the distributions for the current wing
+                    # ---------------------------------------- Solve forces --------------------------------------
+                    try:
+                        # get relative path for the loads file
                         script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
-                        dist_file = curr_wing_name + "_dist.json"
-                        abs_dist_path = os.path.join(script_dir, "DataNotConverged\\" + str(dist_file))
+                        results_file = curr_wing_name + "_U" + str(test_v) + "_AOA" + str(test_aoa) + "_results.json"
+                        abs_res_path = os.path.join(script_dir, "DataConverged\\" + str(results_file))
+
+                        # solve and save the loads
+                        results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
+                                                        verbose=True, report_by_segment=True, filename=abs_res_path)
+
+                        # save the distributions
+                        dist_file = curr_wing_name + "_U" + str(test_v) + "_AOA" + str(test_aoa) + "_dist.json"
+                        abs_dist_path = os.path.join(script_dir, "DataConverged\\" + str(dist_file))
                         curr_dist = my_scene.distributions(filename=abs_dist_path)
 
-                else:
-                    print(curr_wing_name, "solver converged!")
+                    except MX.SolverNotConvergedError as err_msg:
+                        converged = 0
+                        err = "convergence"
+                    except adb.DatabaseBoundsError as err_msg:
+                        converged = 0
+                        err = "bounds"
+                    except UserWarning as err_msg:
+                        converged = 0
+                        err = err_msg
+                    except Exception as err_msg:
+                        converged = 0
+                        err = err_msg
+                    except:
+                        converged = 0
+                        err = "unknown"
+                    else:
+                        converged = 1
+                        err = "None"
 
-                    # verify that MachUp quarter chord matches the desired chord
-                    y_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
-                    x_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
-                    z_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
-                    x_c4 = [row[0] for row in quarter_chord]
-                    y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
-                    z_c4 = [row[2] for row in quarter_chord]
-                    # calculate the total maximum error on the estimated shape
-                    build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x_MX, y_MX, z_MX)
-
-                    converged_file.append([wing_data["species"][x], wing_data["WingID"][x],
+                    if converged == 0:
+                        # Uncoverged case
+                        print(curr_wing_name, "at alpha =", test_aoa, "did not save because of a", err, "error")
+                        # save the wing info to a file
+                        error_file.append([wing_data["species"][x], wing_data["WingID"][x],
                                            wing_data["TestID"][x], wing_data["frameID"][x],
                                            curr_elbow, curr_manus,
                                            final_geom[0], final_geom[1], final_geom[2],
-                                           test_aoa, test_v, max(build_error)])
+                                           test_aoa, test_v, err])
+
+                        if test_aoa == 0:  # only save once per wing
+
+                            # save the distributions for the current wing
+                            script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
+                            dist_file = curr_wing_name + "_dist.json"
+                            abs_dist_path = os.path.join(script_dir, "DataNotConverged\\" + str(dist_file))
+                            curr_dist = my_scene.distributions(filename=abs_dist_path)
+
+                    else:
+                        print(curr_wing_name, "solver converged!")
+
+                        # verify that MachUp quarter chord matches the desired chord
+                        y_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
+                        x_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
+                        z_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
+                        x_c4 = [row[0] for row in quarter_chord]
+                        y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
+                        z_c4 = [row[2] for row in quarter_chord]
+                        # calculate the total maximum error on the estimated shape
+                        build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x_MX, y_MX, z_MX)
+
+                        converged_file.append([wing_data["species"][x], wing_data["WingID"][x],
+                                               wing_data["TestID"][x], wing_data["frameID"][x],
+                                               curr_elbow, curr_manus,
+                                               final_geom[0], final_geom[1], final_geom[2],
+                                               test_aoa, test_v, max(build_error)])
 
                 # y_body = curr_dist[curr_wing_name]["body_right"]["cpy"]
                 # x_body = curr_dist[curr_wing_name]["body_right"]["cpx"]
