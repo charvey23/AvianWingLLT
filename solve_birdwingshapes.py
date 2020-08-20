@@ -6,10 +6,9 @@ import pandas as pd
 import numpy as np
 import machupX as MX
 import matplotlib.pyplot as plt
-import birdwingsegmenter as bws
+import compute_birdwingshapes as bws
 import airfoil_db as adb
 import os
-import json
 
 # ------------------------------- Import data and initialize ---------------------------------------
 # compute wing segment #1
@@ -27,6 +26,8 @@ previous_species = "initialize"
 all_gull_airfoils = []
 all_gull_body = []
 all_gull_wing_dicts = []
+
+# -------------------------------  Set the test conditions -------------------------------
 velocity_list = [10]  # selected test velocities
 alpha_list = np.arange(-5, 5, 0.5)  # selected angle of attacks
 density = 1.225
@@ -35,7 +36,6 @@ dyn_vis = 1.81E-5
 
 def round_high(number, base=5E4):
     return int(base * round(float(number)/base))
-
 
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
