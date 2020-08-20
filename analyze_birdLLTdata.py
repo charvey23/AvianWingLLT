@@ -5,6 +5,7 @@ The purpose of this file is to read in the output data from bird wing shape LLT 
 import json
 import pandas as pd
 import os
+from datetime import date
 
 # ---------------- Read in the file of all converged data points -------
 dat_wingcon = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT'
@@ -31,6 +32,8 @@ for x in range(0, len(dat_wingcon.index)):
                          dat_wingcon["TestID"][x], dat_wingcon["FrameID"][x],
                          dat_wingcon["elbow"][x], dat_wingcon["manus"][x],
                          dat_wingcon["ref_S"][x], dat_wingcon["ref_l_long"][x], dat_wingcon["ref_l_lat"][x],
+                         dat_wingcon["len_tip"][x], dat_wingcon["sweep_tip"][x],
+                         dat_wingcon["dihedral_tip"][x], dat_wingcon["twist_tip"][x],
                          dat_wingcon["alpha"][x], dat_wingcon["U"][x], dat_wingcon["build_error"][x],
                          dat_res_curr[wing_name_curr]['total']['CL'],
                          dat_res_curr[wing_name_curr]['total']['CD'],
@@ -41,4 +44,11 @@ for x in range(0, len(dat_wingcon.index)):
 
 # ------------------------------ Compute stability derivatives ------------------------------------
 
-print("hi")
+file_res = pd.DataFrame(results_file)
+file_res.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
+                    "ref_S", "ref_l_long", "ref_l_lat", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
+                    "alpha", "U", "build_error", "CL", "CD", "Cm", "FL", "FD", "My"]
+today = date.today()
+date_adj = today.strftime("%Y_%m_%d")
+file_res.to_csv(str(date_adj) + '_CompiledResults.csv', index=False)
+

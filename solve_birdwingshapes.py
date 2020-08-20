@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import compute_birdwingshapes as bws
 import airfoil_db as adb
 import os
+import json
 
 # ------------------------------- Import data and initialize ---------------------------------------
 # compute wing segment #1
@@ -129,6 +130,8 @@ for x in wt_wings:
         # NOTE: root chord is added a second time because the edge of the body airfoil will have a different Reynolds
         all_chord = np.insert(all_chord, 1, full_chord[0])
 
+        full_model_length = wsk_2 + max(quarter_chord[:, 1])
+
         # -------------------------------------- Loop through the test velocities --------------------------------------
         for v in range(0, len(velocity_list)):
             test_v = velocity_list[v]
@@ -177,7 +180,7 @@ for x in wt_wings:
                         "solver": {
                             "type": "nonlinear",
                             "relaxation": 0.01,
-                            "max_iterations": 10000,
+                            "max_iterations": 100,
                             'convergence': 1e-3
                         },
                         "units": "SI",
@@ -191,6 +194,8 @@ for x in wt_wings:
                                         "velocity": test_v,
                                         "alpha": test_aoa}, }}}
                     }
+
+
 
                     # ---------------------------------------- Prepare scene --------------------------------------
                     # Initialize Scene object.
@@ -210,12 +215,18 @@ for x in wt_wings:
                         script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
                         results_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_results.json"
                         abs_res_path = os.path.join(script_dir, "DataConverged\\" + str(results_file))
+                        abs_input_path = os.path.join(script_dir, "InputFiles\\" + curr_wing_name + 'inputs.json')
+
+                        # save the current input file once per wing
+                        if alpha == -5:
+                            with open(abs_input_path, 'w') as outfile:
+                                json.dump(input_file, outfile)
 
                         # solve and save the loads
                         results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
                                                         verbose=True, report_by_segment=True, filename=abs_res_path)
 
-                        # save the distributions
+                        # save the distributions if no error was thrown above
                         dist_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_dist.json"
                         abs_dist_path = os.path.join(script_dir, "DataConverged\\" + str(dist_file))
                         curr_dist = my_scene.distributions(filename=abs_dist_path)
@@ -247,6 +258,7 @@ for x in wt_wings:
                                            wing_data["TestID"][x], wing_data["frameID"][x],
                                            curr_elbow, curr_manus,
                                            final_geom[0], final_geom[1], final_geom[2],
+                                           full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
                                            test_aoa, test_v, err])
 
                         if test_aoa == 0:  # only save once per wing
@@ -274,6 +286,7 @@ for x in wt_wings:
                                                wing_data["TestID"][x], wing_data["frameID"][x],
                                                curr_elbow, curr_manus,
                                                final_geom[0], final_geom[1], final_geom[2],
+                                               full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
                                                test_aoa, test_v, max(build_error)])
 
                 # y_body = curr_dist[curr_wing_name]["body_right"]["cpy"]
@@ -317,11 +330,13 @@ for x in wt_wings:
 # save the data
 file_con = pd.DataFrame(converged_file)
 file_con.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "alpha", "U", "build_error"]
+                    "ref_S", "ref_l_long", "ref_l_lat", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
+                    "alpha", "U", "build_error"]
 
 file_err = pd.DataFrame(error_file)
 file_err.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "alpha", "U", "error_reason"]
+                    "ref_S", "ref_l_long", "ref_l_lat", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
+                    "alpha", "U", "error_reason"]
 
 file_con.to_csv('List_ConvergedWings.csv', index=False)
 file_err.to_csv('List_NotConvergedWings.csv', index=False)
