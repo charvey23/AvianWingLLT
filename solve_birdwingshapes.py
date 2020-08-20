@@ -33,14 +33,10 @@ alpha_list = np.arange(-5, 5, 0.5)  # selected angle of attacks
 density = 1.225
 dyn_vis = 1.81E-5
 
-
-def round_high(number, base=5E4):
-    return int(base * round(float(number)/base))
-
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
 wt_wings = [42666, 52686, 52695, 20275, 20114, 86, 52586, 42567, 42666]
-# range(0, 68977)
+# range(0, len(wing_data.index))
 for x in wt_wings:
     # define the current wing name
     curr_wing_name = wing_data["species"][x] + "_WingID" + wing_data["WingID"][x] + wing_data["TestID"][
@@ -48,6 +44,7 @@ for x in wt_wings:
     curr_elbow = wing_data["elbow"][x]
     curr_manus = wing_data["manus"][x]
 
+    # ----------------------------- Remove wings that will not be investigated ---------------------------------
     # only investigate the in vivo gliding ranges
     if curr_elbow < 85:
         continue
@@ -58,6 +55,7 @@ for x in wt_wings:
         continue
     if wing_data["dihedral"][x] != 0:
         continue
+
     # --------------------------------------------------------------------------------------------
     # define the current points relating the each numerical point
     curr_joints = np.array([[wing_data["Pt2X"][x], wing_data["Pt2Y"][x], wing_data["Pt2Z"][x]],
@@ -141,7 +139,7 @@ for x in wt_wings:
             # Round the Reynolds number
             for re in range(0, len(Re_section)):
                 if Re_section[re] > 1E5:
-                    Re_section[re] = round_high(Re_section[re])  # rounds to nearest 5E4 above 1E5
+                    Re_section[re] = bws.round_high(Re_section[re])  # rounds to nearest 5E4 above 1E5
                 else:
                     if Re_section[re] < 1E4:
                         Re_section[re] = 1E4  # ensures that 1E4 is the lowest XFoil data that is used
@@ -210,7 +208,7 @@ for x in wt_wings:
                     try:
                         # get relative path for the loads file
                         script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
-                        results_file = curr_wing_name + "_U" + str(test_v) + "_AOA" + str(test_aoa) + "_results.json"
+                        results_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_results.json"
                         abs_res_path = os.path.join(script_dir, "DataConverged\\" + str(results_file))
 
                         # solve and save the loads
@@ -218,7 +216,7 @@ for x in wt_wings:
                                                         verbose=True, report_by_segment=True, filename=abs_res_path)
 
                         # save the distributions
-                        dist_file = curr_wing_name + "_U" + str(test_v) + "_AOA" + str(test_aoa) + "_dist.json"
+                        dist_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_dist.json"
                         abs_dist_path = os.path.join(script_dir, "DataConverged\\" + str(dist_file))
                         curr_dist = my_scene.distributions(filename=abs_dist_path)
 
@@ -319,11 +317,11 @@ for x in wt_wings:
 # save the data
 file_con = pd.DataFrame(converged_file)
 file_con.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "alpha", "v", "build_error"]
+                    "ref_S", "ref_l_long", "ref_l_lat", "alpha", "U", "build_error"]
 
 file_err = pd.DataFrame(error_file)
 file_err.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "alpha", "v", "error_reason"]
+                    "ref_S", "ref_l_long", "ref_l_lat", "alpha", "U", "error_reason"]
 
 file_con.to_csv('List_ConvergedWings.csv', index=False)
 file_err.to_csv('List_NotConvergedWings.csv', index=False)
