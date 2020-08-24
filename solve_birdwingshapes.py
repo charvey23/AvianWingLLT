@@ -30,7 +30,7 @@ all_gull_wing_dicts = []
 
 # -------------------------------  Set the test conditions -------------------------------
 velocity_list = [10]  # selected test velocities
-alpha_list = np.arange(-5, 5, 0.5)  # selected angle of attacks
+alpha_list = np.arange(-10, 10.5, 0.5)  # selected angle of attacks
 density = 1.225
 dyn_vis = 1.81E-5
 
@@ -180,7 +180,7 @@ for x in wt_wings:
                         "solver": {
                             "type": "nonlinear",
                             "relaxation": 0.01,
-                            "max_iterations": 100,
+                            "max_iterations": 10000,
                             'convergence': 1e-3
                         },
                         "units": "SI",
@@ -194,8 +194,6 @@ for x in wt_wings:
                                         "velocity": test_v,
                                         "alpha": test_aoa}, }}}
                     }
-
-
 
                     # ---------------------------------------- Prepare scene --------------------------------------
                     # Initialize Scene object.
@@ -211,6 +209,11 @@ for x in wt_wings:
 
                     # ---------------------------------------- Solve forces --------------------------------------
                     try:
+                        # save the mean aerodynamic chord
+                        mac_curr = my_scene.MAC()
+
+                        my_scene.set_err_state(not_converged="raise", database_bounds="raise")
+
                         # get relative path for the loads file
                         script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
                         results_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_results.json"
@@ -258,16 +261,9 @@ for x in wt_wings:
                                            wing_data["TestID"][x], wing_data["frameID"][x],
                                            curr_elbow, curr_manus,
                                            final_geom[0], final_geom[1], final_geom[2],
+                                           mac_curr['length'],
                                            full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
                                            test_aoa, test_v, err])
-
-                        if test_aoa == 0:  # only save once per wing
-
-                            # save the distributions for the current wing
-                            script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
-                            dist_file = curr_wing_name + "_dist.json"
-                            abs_dist_path = os.path.join(script_dir, "DataNotConverged\\" + str(dist_file))
-                            curr_dist = my_scene.distributions(filename=abs_dist_path)
 
                     else:
                         print(curr_wing_name, "solver converged!")
@@ -286,6 +282,7 @@ for x in wt_wings:
                                                wing_data["TestID"][x], wing_data["frameID"][x],
                                                curr_elbow, curr_manus,
                                                final_geom[0], final_geom[1], final_geom[2],
+                                               mac_curr['length'],
                                                full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
                                                test_aoa, test_v, max(build_error)])
 
@@ -330,12 +327,12 @@ for x in wt_wings:
 # save the data
 file_con = pd.DataFrame(converged_file)
 file_con.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
+                    "ref_S", "ref_l_long", "ref_l_lat", "MAC", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
                     "alpha", "U", "build_error"]
 
 file_err = pd.DataFrame(error_file)
 file_err.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
+                    "ref_S", "ref_l_long", "ref_l_lat", "MAC", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
                     "alpha", "U", "error_reason"]
 
 file_con.to_csv('List_ConvergedWings.csv', index=False)
