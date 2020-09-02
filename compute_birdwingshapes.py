@@ -175,19 +175,29 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2, no_pts, airfoils):
         quarter_chord[i, :] = le_pts[i, :] + 0.25 * (te_pts[i, :] - le_pts[i, :])
         full_chord[i] = np.linalg.norm(te_pts[i, :] - le_pts[i, :])
 
-    # ---- Write in a check to see if two quarter chord points are closer than 0.5cm
-    ind_red = -1
-    for i in range(0, (no_pts-2)):
-        dif = np.linalg.norm(quarter_chord[i+1, :]-quarter_chord[i, :])
-        if dif < 0.005:
-            ind_red = i + 1
+    # ensures that the thickness on the tip is 0.15mm with a 3% thick airfoil
+    full_chord[(no_pts-2)] = 0.005
+
+    # ---- Write in a check to see if two quarter chord points are closer than 5cm
+    reduction = 0  # initialize
+    start_pts = (no_pts-2)
+    for i in range(0, start_pts):
+        ind_red = -1
+        dif = np.linalg.norm(quarter_chord[i+1+reduction, :]-quarter_chord[i+reduction, :])
+        if dif < 0.0254:
+            ind_red = i + 1 + reduction
     # cut the data down to size if required
-    if ind_red > 0:
-        quarter_chord = np.delete(quarter_chord, ind_red, axis=0)
-        le_pts = np.delete(le_pts, ind_red, axis=0)
-        full_chord = np.delete(full_chord, ind_red)
-        del airfoils[ind_red]
-        no_pts = no_pts - 1
+        if ind_red > 0:
+            # don't want to delete the wing tip so if i = last point we need to delete the previous one
+            if i == start_pts-1:
+                ind_red = ind_red - 1
+
+            quarter_chord = np.delete(quarter_chord, ind_red, axis=0)
+            le_pts = np.delete(le_pts, ind_red, axis=0)
+            full_chord = np.delete(full_chord, ind_red)
+            del airfoils[ind_red]
+            no_pts = no_pts - 1
+            reduction = reduction - 1  # necessary if need to remove two quarter chord points
 
     # now initialize the rest of the matrices with the updated number of points
     discrete_dihedral = [0.0] * (no_pts-2)
@@ -275,7 +285,6 @@ def geom_def(le_pts, te_pts, gam, body_gam, w_2, no_pts, airfoils):
 
     return quarter_chord, full_chord, airfoils, segment_span, full_span_frac, dis_span_frac,\
            wing_sweep, wing_dihedral, full_twist, full_body_frac, true_body_w2, body_sweep, body_dihedral
-
 # ----------------------------------------------------------------------------------------------------------------------
 # ---------------------------- Function that solves for dihedral and sweep blend ---------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------

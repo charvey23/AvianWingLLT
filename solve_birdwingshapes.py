@@ -13,14 +13,14 @@ import json
 
 # ------------------------------- Import data and initialize ---------------------------------------
 # compute wing segment #1
-wing_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT'
+wing_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/StaticStability/AvianWingLLT'
                         '/2020_05_25_OrientedWings.csv')
 # limit the data to 0 shoulder sweep and 0 shoulder dihedral for now
 error_file = []
 converged_file = []
 converged = 1
 # VRP is defined as the center location between the two humeral heads
-species_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/LLT_AIAAPaper/AvianWingLLT/allspeciesdat.csv')
+species_data = pd.read_csv('/Users/Inman PC/Google Drive/DoctoralThesis/StaticStability/AvianWingLLT/allspeciesdat.csv')
 skipped_configs = []
 skipped_reason = []
 previous_species = "initialize"
@@ -30,13 +30,14 @@ all_gull_wing_dicts = []
 
 # -------------------------------  Set the test conditions -------------------------------
 velocity_list = [10]  # selected test velocities
-alpha_list = np.arange(-10, 10.5, 0.5)  # selected angle of attacks
+alpha_list = [0] # np.arange(-10, 10.5, 0.5)  # selected angle of attacks
 density = 1.225
 dyn_vis = 1.81E-5
 
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
-wt_wings = [42666, 52686, 52695, 20275, 20114, 86, 52586, 42567, 42666]
+wt_wings = [52686, 52695, 52770, 42597, 52648, 52586, 42642, 42567, 42666]
+
 # range(0, len(wing_data.index))
 for x in wt_wings:
     # define the current wing name
@@ -113,8 +114,11 @@ for x in wt_wings:
         previous_species = curr_species
         # ---------------------- Wing geometry data ---------------------------------
         # determine the appropriate geometry along the wingspan
-        gam = 0.85
-        body_gam = [(wsk_2 / w_2), 0.1 + (wsk_2 / w_2), 0.9]
+        gam = 0.95
+        # defines the ratio use at the body. 1st entry is the final place for 0 sweep and 0 dihedral,
+        # between 1st and 2nd is the linear region, 2nd and 3rd is constant dihedral and sweep,
+        # 3rd to end is another linear region that ends at the root qualities
+        body_gam = [(wsk_2 / w_2), 0.05 + (wsk_2 / w_2), 0.90]
         quarter_chord, full_chord, airfoil_list, segment_span, full_span_frac, dis_span_frac, \
         wing_sweep, wing_dihedral, full_twist, body_span_frac, true_body_w2, body_sweep, body_dihedral \
             = bws.geom_def(curr_le, curr_te, gam, body_gam, w_2, no_pts, airfoil_list)
@@ -180,7 +184,7 @@ for x in wt_wings:
                         "solver": {
                             "type": "nonlinear",
                             "relaxation": 0.01,
-                            "max_iterations": 10000,
+                            "max_iterations": 100,
                             'convergence': 1e-3
                         },
                         "units": "SI",
@@ -202,138 +206,139 @@ for x in wt_wings:
                     my_scene.set_err_state(not_converged="raise", database_bounds="raise")
 
                     # Only use the following line if printing for wind tunnel analyses
-                    # my_scene.export_dxf(number_guide_curves=10, section_resolution=300)
-
-                    # save the final reference geometry used in the analysis
-                    final_geom = my_scene.get_aircraft_reference_geometry()
-
-                    # ---------------------------------------- Solve forces --------------------------------------
-                    try:
-                        # save the mean aerodynamic chord
-                        mac_curr = my_scene.MAC()
-
-                        my_scene.set_err_state(not_converged="raise", database_bounds="raise")
-
-                        # get relative path for the loads file
-                        script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
-                        results_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_results.json"
-                        abs_res_path = os.path.join(script_dir, "DataConverged\\" + str(results_file))
-                        abs_input_path = os.path.join(script_dir, "InputFiles\\" + curr_wing_name + 'inputs.json')
-
-                        # save the current input file once per wing
-                        if alpha == -5:
-                            with open(abs_input_path, 'w') as outfile:
-                                json.dump(input_file, outfile)
-
-                        # solve and save the loads
-                        results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
-                                                        verbose=True, report_by_segment=True, filename=abs_res_path)
-
-                        # save the distributions if no error was thrown above
-                        dist_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_dist.json"
-                        abs_dist_path = os.path.join(script_dir, "DataConverged\\" + str(dist_file))
-                        curr_dist = my_scene.distributions(filename=abs_dist_path)
-
-                    except MX.SolverNotConvergedError as err_msg:
-                        converged = 0
-                        err = "convergence"
-                    except adb.DatabaseBoundsError as err_msg:
-                        converged = 0
-                        err = "bounds"
-                    except UserWarning as err_msg:
-                        converged = 0
-                        err = err_msg
-                    except Exception as err_msg:
-                        converged = 0
-                        err = err_msg
-                    except:
-                        converged = 0
-                        err = "unknown"
-                    else:
-                        converged = 1
-                        err = "None"
-
-                    if converged == 0:
-                        # Uncoverged case
-                        print(curr_wing_name, "at alpha =", test_aoa, "did not save because of a", err, "error")
-                        # save the wing info to a file
-                        error_file.append([wing_data["species"][x], wing_data["WingID"][x],
-                                           wing_data["TestID"][x], wing_data["frameID"][x],
-                                           curr_elbow, curr_manus,
-                                           final_geom[0], final_geom[1], final_geom[2],
-                                           mac_curr['length'],
-                                           full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
-                                           test_aoa, test_v, err])
-
-                    else:
-                        print(curr_wing_name, "solver converged!")
-
-                        # verify that MachUp quarter chord matches the desired chord
-                        y_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
-                        x_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
-                        z_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
-                        x_c4 = [row[0] for row in quarter_chord]
-                        y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
-                        z_c4 = [row[2] for row in quarter_chord]
-                        # calculate the total maximum error on the estimated shape
-                        build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x_MX, y_MX, z_MX)
-
-                        converged_file.append([wing_data["species"][x], wing_data["WingID"][x],
-                                               wing_data["TestID"][x], wing_data["frameID"][x],
-                                               curr_elbow, curr_manus,
-                                               final_geom[0], final_geom[1], final_geom[2],
-                                               mac_curr['length'],
-                                               full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
-                                               test_aoa, test_v, max(build_error)])
-
-                # y_body = curr_dist[curr_wing_name]["body_right"]["cpy"]
-                # x_body = curr_dist[curr_wing_name]["body_right"]["cpx"]
-                # z_body = curr_dist[curr_wing_name]["body_right"]["cpz"]
-                #
-                # x_true = [row[0] for row in curr_pts]
-                # y_true = [row[1] for row in curr_pts] - curr_pts[6][1] + w_2
-                # z_true = [row[2] for row in curr_pts]
-                #
-                # x_le = [row[0] for row in curr_le]
-                # y_le = [row[1] for row in curr_le] - (curr_le[0][1]) + w_2
-                # z_le = [row[2] for row in curr_le]
-                #
-                # x_te = [row[0] for row in curr_te]
-                # y_te = [row[1] for row in curr_te] - (curr_te[0][1]) + w_2
-                # z_te = [row[2] for row in curr_te]
-                #
-                # y = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
-                # x = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
-                # z = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
-                #
-                # x_c4 = [row[0] for row in quarter_chord]
-                # y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
-                # z_c4 = [row[2] for row in quarter_chord]
-
-                # fig = plt.figure()
-                # ax = plt.axes(projection='3d')
-                # ax.scatter3D(x_true, y_true, z_true, 'gray')
-                # ax.scatter3D(x_c4, y_c4, z_c4, 'green')
-
-                # plt.plot(y_body, z_body, y_MX, z_MX, y_c4, z_c4, 'bo')
-                # plt.show()
-                # plt.plot(y_body, x_body, y_MX, x_MX, y_c4, x_c4, 'ro')
-                # plt.show()
-                #
-                # plt.plot(y_true, x_true, 'bo', y_c4, x_c4, 'ro')
-                # plt.show()
-                # print("hi")
-
-# save the data
-file_con = pd.DataFrame(converged_file)
-file_con.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "MAC", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
-                    "alpha", "U", "build_error"]
-
-file_err = pd.DataFrame(error_file)
-file_err.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "MAC", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
-                    "alpha", "U", "error_reason"]
-
-file_con.to_csv('List_ConvergedWings.csv', index=False)
-file_err.to_csv('List_NotConvergedWings.csv', index=False)
+                    my_scene.export_dxf(dxf_line_type="spline", number_guide_curves=10)
+#
+#                     # save the final reference geometry used in the analysis
+#                     final_geom = my_scene.get_aircraft_reference_geometry()
+#
+#                     # save the mean aerodynamic chord
+#                     mac_curr = my_scene.MAC()
+#
+#                     # ---------------------------------------- Solve forces --------------------------------------
+#                     try:
+#                         # the errors should be set to "raise" while iterating
+#                         my_scene.set_err_state(not_converged="warn", database_bounds="warn")
+#
+#                         # get relative path for the loads file
+#                         script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
+#                         results_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_results.json"
+#                         abs_res_path = os.path.join(script_dir, "DataConverged\\" + str(results_file))
+#                         abs_input_path = os.path.join(script_dir, "InputFiles\\" + curr_wing_name + 'inputs.json')
+#
+#                         # save the current input file once per wing
+#                         if alpha == -5:
+#                             with open(abs_input_path, 'w') as outfile:
+#                                 json.dump(input_file, outfile)
+#
+#                         # solve and save the loads
+#                         results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
+#                                                         verbose=True, report_by_segment=True, filename=abs_res_path)
+#
+#                         # save the distributions if no error was thrown above
+#                         dist_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_dist.json"
+#                         abs_dist_path = os.path.join(script_dir, "DataConverged\\" + str(dist_file))
+#                         curr_dist = my_scene.distributions(filename=abs_dist_path)
+#
+#                     except MX.SolverNotConvergedError as err_msg:
+#                         converged = 0
+#                         err = "convergence"
+#                     except adb.DatabaseBoundsError as err_msg:
+#                         converged = 0
+#                         err = "bounds"
+#                     except UserWarning as err_msg:
+#                         converged = 0
+#                         err = err_msg
+#                     except Exception as err_msg:
+#                         converged = 0
+#                         err = err_msg
+#                     except:
+#                         converged = 0
+#                         err = "unknown"
+#                     else:
+#                         converged = 1
+#                         err = "None"
+#
+#                     if converged == 0:
+#                         # Uncoverged case
+#                         print(curr_wing_name, "at alpha =", test_aoa, "did not save because of a", err, "error")
+#                         # save the wing info to a file
+#                         error_file.append([wing_data["species"][x], wing_data["WingID"][x],
+#                                            wing_data["TestID"][x], wing_data["frameID"][x],
+#                                            curr_elbow, curr_manus,
+#                                            final_geom[0], final_geom[1], final_geom[2],
+#                                            mac_curr[curr_wing_name]["length"],
+#                                            full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
+#                                            test_aoa, test_v, err])
+#
+#                     else:
+#                         print(curr_wing_name, "solver converged!")
+#
+#                         # verify that MachUp quarter chord matches the desired chord
+#                         y_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
+#                         x_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
+#                         z_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
+#                         x_c4 = [row[0] for row in quarter_chord]
+#                         y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
+#                         z_c4 = [row[2] for row in quarter_chord]
+#                         # calculate the total maximum error on the estimated shape
+#                         build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x_MX, y_MX, z_MX)
+#
+#                         converged_file.append([wing_data["species"][x], wing_data["WingID"][x],
+#                                                wing_data["TestID"][x], wing_data["frameID"][x],
+#                                                curr_elbow, curr_manus,
+#                                                final_geom[0], final_geom[1], final_geom[2],
+#                                                mac_curr[curr_wing_name]["length"],
+#                                                full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
+#                                                test_aoa, test_v, max(build_error)])
+#
+#                 y_body = curr_dist[curr_wing_name]["body_right"]["cpy"]
+#                 x_body = curr_dist[curr_wing_name]["body_right"]["cpx"]
+#                 z_body = curr_dist[curr_wing_name]["body_right"]["cpz"]
+#
+#                 x_true = [row[0] for row in curr_pts]
+#                 y_true = [row[1] for row in curr_pts] - curr_pts[6][1] + w_2
+#                 z_true = [row[2] for row in curr_pts]
+#
+#                 x_le = [row[0] for row in curr_le]
+#                 y_le = [row[1] for row in curr_le] - (curr_le[0][1]) + w_2
+#                 z_le = [row[2] for row in curr_le]
+#
+#                 x_te = [row[0] for row in curr_te]
+#                 y_te = [row[1] for row in curr_te] - (curr_te[0][1]) + w_2
+#                 z_te = [row[2] for row in curr_te]
+#
+#                 y_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
+#                 x_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
+#                 z_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
+#
+#                 x_c4 = [row[0] for row in quarter_chord]
+#                 y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
+#                 z_c4 = [row[2] for row in quarter_chord]
+#
+#                 # fig = plt.figure()
+#                 # ax = plt.axes(projection='3d')
+#                 # ax.scatter3D(x_true, y_true, z_true, 'gray')
+#                 # ax.scatter3D(x_c4, y_c4, z_c4, 'green')
+#
+#                 plt.plot(y_body, z_body, y_MX, z_MX, y_c4, z_c4, 'bo')
+#                 plt.show()
+#                 plt.plot(y_body, x_body, y_MX, x_MX, y_c4, x_c4, 'ro')
+#                 plt.show()
+#
+#                 plt.plot(y_true, x_true, 'bo', y_c4, x_c4, 'ro')
+#                 plt.show()
+#                 print("hi")
+#
+# # save the data
+# file_con = pd.DataFrame(converged_file)
+# file_con.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
+#                     "ref_S", "ref_l_long", "ref_l_lat", "MAC", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
+#                     "alpha", "U", "build_error"]
+#
+# file_err = pd.DataFrame(error_file)
+# file_err.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
+#                     "ref_S", "ref_l_long", "ref_l_lat", "MAC", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
+#                     "alpha", "U", "error_reason"]
+#
+# file_con.to_csv('List_ConvergedWings.csv', index=False)
+# file_err.to_csv('List_NotConvergedWings.csv', index=False)
