@@ -6,7 +6,7 @@ import airfoil_db as adb
 import os
 import numpy as np
 
-geometry_file = "naca3603_geometry.csv"
+geometry_file = "lius40_geometry.csv"
 # save name of airfoil for later
 airfoil_name, type_of_file = geometry_file.split("_")
 orig_dir = os.getcwd()
@@ -25,9 +25,9 @@ header = " ".join(header)
 airfoil_input = {
     "type": "database",
     "geometry": {
-        # "outline_points": geometry_file,
-        # "top_first": True
-        "NACA": "3603"
+        "outline_points": geometry_file,
+        "top_first": True
+        #"NACA": "0020"
     }
 }
 # define the current airfoil class

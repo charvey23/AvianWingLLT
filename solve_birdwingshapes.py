@@ -4,12 +4,11 @@ output the appropriate dictionary to be used in MachUpX
 """
 import pandas as pd
 import numpy as np
-import machupX as MX
-import matplotlib.pyplot as plt
 import compute_birdwingshapes as bws
-import airfoil_db as adb
-import os
-import json
+import run_birdwingLLT as rbw
+import csv
+from datetime import date
+import machupX as MX
 
 # ------------------------------- Import data and initialize ---------------------------------------
 # compute wing segment #1
@@ -30,9 +29,10 @@ all_gull_wing_dicts = []
 
 # -------------------------------  Set the test conditions -------------------------------
 velocity_list = [10]  # selected test velocities
-alpha_list = np.arange(-10, 10.5, 0.5)  # selected angle of attacks
+alpha_list = np.arange(-10.0, 10.0, 1.0)  # selected angle of attacks
 density = 1.225
 dyn_vis = 1.81E-5
+kin_vis = dyn_vis/density
 
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
@@ -44,6 +44,9 @@ for x in range(0, len(wing_data.index)):
         x] + "_Frame" + str(wing_data["frameID"][x])
     curr_elbow = wing_data["elbow"][x]
     curr_manus = wing_data["manus"][x]
+    print('---------------------------------------')
+    print('Computing wing shape for: %s' % curr_wing_name)
+    print('---------------------------------------')
 
     # ----------------------------- Remove wings that will not be investigated ---------------------------------
     # only investigate the in vivo gliding ranges
@@ -161,7 +164,7 @@ for x in range(0, len(wing_data.index)):
 
             # 2. create the body dictionary
             curr_body_dict, area_body = bws.build_body_dict(final_airfoil_names[0:3], true_body_w2, body_len, full_chord[0],
-                                                 body_span_frac, body_dihedral, wing_dihedral[0], body_sweep, wing_sweep[0])
+                                                            body_span_frac, body_dihedral, wing_dihedral[0], body_sweep, wing_sweep[0])
 
             # 3. create the full wing dictionary
             curr_wing_dict = bws.build_smooth_wing_dict(bird_cg, bird_weight, segment_span, full_span_frac, full_chord,
@@ -170,104 +173,93 @@ for x in range(0, len(wing_data.index)):
 
             # ---------------------------------------- Set Flight Conditions --------------------------------------
             for alpha in alpha_list:
+                message_str = "Current wing: %s Current Angle of attack: %d" \
+                              % (curr_wing_name, alpha)
+                print(message_str)
+                print('---------------------------------------')
                 test_aoa = alpha
                 test_beta = 0
 
+                # set the solver information
+                max_it = 1E2
+                tol_con = 1E-8
+                relax = 1
+
                 if __name__ == "__main__":
-                    input_file = {
-                        "tag": "Aerodynamic properties of simplified bird wing",
-                        "run": {
-                            "display_wireframe": {"show_legend": True},
-                            "solve_forces": {"non_dimensional": True},
-                            "distributions": {}},
-                        "solver": {
-                            "type": "nonlinear",
-                            "relaxation": 0.01,
-                            "max_iterations": 1e5,
-                            'convergence': 1e-4
-                        },
-                        "units": "SI",
-                        "scene": {
-                            "atmosphere": {},
-                            "aircraft": {
-                                curr_wing_name: {
-                                    "file": curr_wing_dict,
-                                    "state": {
-                                        "type": "aerodynamic",
-                                        "velocity": test_v,
-                                        "alpha": test_aoa}, }}}
-                    }
 
-                    # ---------------------------------------- Prepare scene --------------------------------------
-                    # Initialize Scene object.
-                    my_scene = MX.Scene(input_file)
-                    # set the errors to only warn when iterating
-                    my_scene.set_err_state(not_converged="raise", database_bounds="raise")
+                    message_str = "1st Attempt: maximum iterations = %d and relaxation= %.2f" % (max_it,  relax)
+                    print(message_str)
+                    print('---------------------------------------')
+                    # create input file and try to solve
+                    converged, err, final_geom, \
+                    mac_curr, results, curr_dist = rbw.run_machupx(curr_wing_name, test_v, test_aoa, density, kin_vis,
+                                                                   curr_wing_dict, max_it, tol_con, relax)
 
-                    # Only use the following line if printing for wind tunnel analyses
-                    # my_scene.export_dxf(dxf_line_type="spline", number_guide_curves=10)
+                    # adjust the relaxation factor and iterations if did not converge - don't bother with the positives
+                    if converged == 0 and alpha < 0:
+                        max_it = 1E3
+                        tol_con = 1E-8
+                        relax = 0.8
 
-                    # save the final reference geometry used in the analysis
-                    final_geom = my_scene.get_aircraft_reference_geometry()
+                        message_str = "2nd Attempt: maximum iterations = %d and relaxation= %.2f" % (max_it,  relax)
+                        print('---------------------------------------')
+                        print(message_str)
+                        print('---------------------------------------')
+                        # create input file and try to solve
+                        converged, err, final_geom, \
+                        mac_curr, results, curr_dist = rbw.run_machupx(curr_wing_name, test_v, test_aoa,
+                                                                       density, kin_vis, curr_wing_dict,
+                                                                       max_it, tol_con, relax)
+                    # adjust the relaxation factor and iterations if did not converge - don't bother with the positives
+                    if converged == 0 and alpha < 0:
+                        max_it = 1E3
+                        tol_con = 1E-8
+                        relax = 0.5
 
-                    # save the mean aerodynamic chord
-                    mac_curr = my_scene.MAC()
+                        message_str = "3rd Attempt: maximum iterations = %d and relaxation= %.2f" % (max_it,  relax)
+                        print('---------------------------------------')
+                        print(message_str)
+                        print('---------------------------------------')
+                        # create input file and try to solve
+                        converged, err, final_geom, \
+                        mac_curr, results, curr_dist = rbw.run_machupx(curr_wing_name, test_v, test_aoa,
+                                                                       density, kin_vis, curr_wing_dict,
+                                                                       max_it, tol_con, relax)
 
-                    # ---------------------------------------- Solve forces --------------------------------------
-                    try:
-                        # the errors should be set to "raise" while iterating
-                        my_scene.set_err_state(not_converged="warn", database_bounds="warn")
+                    # adjust the relaxation factor and iterations if did not converge
+                    if converged == 0:
+                        max_it = 1E4
+                        tol_con = 1E-8
+                        relax = 0.01
+                        message_str = "4th Attempt: maximum iterations = %d and relaxation= %.2f" % (max_it,  relax)
+                        print('---------------------------------------')
+                        print(message_str)
+                        print('---------------------------------------')
+                        # create input file and try to solve
+                        converged, err, final_geom, \
+                        mac_curr, results, curr_dist = rbw.run_machupx(curr_wing_name, test_v, test_aoa,
+                                                                       density, kin_vis, curr_wing_dict,
+                                                                       max_it, tol_con, relax)
 
-                        # get relative path for the loads file
-                        script_dir = os.path.dirname(__file__)  # <-- absolute dir the script is in
-                        results_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_results.json"
-                        abs_res_path = os.path.join(script_dir, "DataConverged\\" + str(results_file))
-                        abs_input_path = os.path.join(script_dir, "InputFiles\\" + curr_wing_name + 'inputs.json')
+                    # save current date
+                    today = date.today()
+                    date_adj = today.strftime("%Y_%m_%d")
 
-                        # save the current input file once per wing
-                        if alpha == -5:
-                            with open(abs_input_path, 'w') as outfile:
-                                json.dump(input_file, outfile)
-
-                        # solve and save the loads
-                        results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
-                                                        verbose=True, report_by_segment=True, filename=abs_res_path)
-
-                        # save the distributions if no error was thrown above
-                        dist_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_dist.json"
-                        abs_dist_path = os.path.join(script_dir, "DataConverged\\" + str(dist_file))
-                        curr_dist = my_scene.distributions(filename=abs_dist_path)
-
-                    except MX.SolverNotConvergedError as err_msg:
-                        converged = 0
-                        err = "convergence"
-                    except adb.DatabaseBoundsError as err_msg:
-                        converged = 0
-                        err = "bounds"
-                    except UserWarning as err_msg:
-                        converged = 0
-                        err = err_msg
-                    except Exception as err_msg:
-                        converged = 0
-                        err = err_msg
-                    except:
-                        converged = 0
-                        err = "unknown"
-                    else:
-                        converged = 1
-                        err = "None"
-
+                    # ---------------------------------------- Save information ------------------------------------
+                    print('---------------------------------------')
+                    print('Saving data')
+                    print('---------------------------------------')
                     if converged == 0:
                         # Uncoverged case
                         print(curr_wing_name, "at alpha =", test_aoa, "did not save because of a", err, "error")
                         # save the wing info to a file
-                        error_file.append([wing_data["species"][x], wing_data["WingID"][x],
-                                           wing_data["TestID"][x], wing_data["frameID"][x],
-                                           curr_elbow, curr_manus,
-                                           final_geom[0], final_geom[1], final_geom[2],
-                                           mac_curr[curr_wing_name]["length"],
-                                           full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
-                                           test_aoa, test_v, err])
+                        with open('List_NotConvergedWings.csv', 'a', newline="") as err_file:
+                            writer = csv.writer(err_file)
+                            writer.writerow([wing_data["species"][x], wing_data["WingID"][x],
+                                            wing_data["TestID"][x], wing_data["frameID"][x],
+                                            curr_elbow, curr_manus, test_aoa, test_v, err, date_adj,
+                                            full_model_length,
+                                             wing_sweep[-1:][0], wing_dihedral[-1:][0], full_twist[-1:][0], relax])
 
                     else:
                         print(curr_wing_name, "at alpha =", test_aoa, "converged!")
@@ -279,65 +271,22 @@ for x in range(0, len(wing_data.index)):
                         x_c4 = [row[0] for row in quarter_chord]
                         y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
                         z_c4 = [row[2] for row in quarter_chord]
+
                         # calculate the total maximum error on the estimated shape
                         build_error = bws.check_build_error(np.transpose(np.array([x_c4, y_c4, z_c4])), x_MX, y_MX, z_MX)
+                        with open('List_ConvergedWings.csv', 'a', newline="") as con_file:
+                            writer = csv.writer(con_file)
+                            writer.writerow([wing_data["species"][x], wing_data["WingID"][x],
+                                             wing_data["TestID"][x], wing_data["frameID"][x],
+                                             curr_elbow, curr_manus, test_aoa, test_v, max(build_error), date_adj,
+                                             final_geom[0], final_geom[1], final_geom[2],
+                                             mac_curr[curr_wing_name]["length"],
+                                             full_model_length,
+                                             wing_sweep[-1:][0], wing_dihedral[-1:][0], full_twist[-1:][0], relax,
+                                            results[curr_wing_name]['total']['CL'],
+                                            results[curr_wing_name]['total']['CD'],
+                                            results[curr_wing_name]['total']['Cm_w'],
+                                            results[curr_wing_name]['total']['FL'],
+                                            results[curr_wing_name]['total']['FD'],
+                                            results[curr_wing_name]['total']['My_w']])
 
-                        converged_file.append([wing_data["species"][x], wing_data["WingID"][x],
-                                               wing_data["TestID"][x], wing_data["frameID"][x],
-                                               curr_elbow, curr_manus,
-                                               final_geom[0], final_geom[1], final_geom[2],
-                                               mac_curr[curr_wing_name]["length"],
-                                               full_model_length, wing_sweep[-1:], wing_dihedral[-1:], full_twist[-1:],
-                                               test_aoa, test_v, max(build_error)])
-#
-#                 y_body = curr_dist[curr_wing_name]["body_right"]["cpy"]
-#                 x_body = curr_dist[curr_wing_name]["body_right"]["cpx"]
-#                 z_body = curr_dist[curr_wing_name]["body_right"]["cpz"]
-#
-#                 x_true = [row[0] for row in curr_pts]
-#                 y_true = [row[1] for row in curr_pts] - curr_pts[6][1] + w_2
-#                 z_true = [row[2] for row in curr_pts]
-#
-#                 x_le = [row[0] for row in curr_le]
-#                 y_le = [row[1] for row in curr_le] - (curr_le[0][1]) + w_2
-#                 z_le = [row[2] for row in curr_le]
-#
-#                 x_te = [row[0] for row in curr_te]
-#                 y_te = [row[1] for row in curr_te] - (curr_te[0][1]) + w_2
-#                 z_te = [row[2] for row in curr_te]
-#
-#                 y_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpy"]
-#                 x_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpx"]
-#                 z_MX = curr_dist[curr_wing_name]["main_wing_right"]["cpz"]
-#
-#                 x_c4 = [row[0] for row in quarter_chord]
-#                 y_c4 = [row[1] for row in quarter_chord] - (quarter_chord[0][1]) + w_2
-#                 z_c4 = [row[2] for row in quarter_chord]
-#
-#                 # fig = plt.figure()
-#                 # ax = plt.axes(projection='3d')
-#                 # ax.scatter3D(x_true, y_true, z_true, 'gray')
-#                 # ax.scatter3D(x_c4, y_c4, z_c4, 'green')
-#
-#                 plt.plot(y_body, z_body, y_MX, z_MX, y_c4, z_c4, 'bo')
-#                 plt.show()
-#                 plt.plot(y_body, x_body, y_MX, x_MX, y_c4, x_c4, 'ro')
-#                 plt.show()
-#
-#                 plt.plot(y_true, x_true, 'bo', y_c4, x_c4, 'ro')
-#                 plt.show()
-#                 print("hi")
-#
-# save the data
-file_con = pd.DataFrame(converged_file)
-file_con.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "MAC", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
-                    "alpha", "U", "build_error"]
-
-file_err = pd.DataFrame(error_file)
-file_err.columns = ["species", "WingID", "TestID", "FrameID", "elbow", "manus",
-                    "ref_S", "ref_l_long", "ref_l_lat", "MAC", "len_tip", "sweep_tip", "dihedral_tip", "twist_tip",
-                    "alpha", "U", "error_reason"]
-
-file_con.to_csv('List_ConvergedWings.csv', index=False)
-file_err.to_csv('List_NotConvergedWings.csv', index=False)

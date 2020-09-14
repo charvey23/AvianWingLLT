@@ -5,8 +5,8 @@ output the appropriate dictionary to be used in MachUpX
 import numpy as np
 import math
 import os
-import scipy
-
+import scipy.optimize
+import scipy.integrate
 # ----------------------------------------------------------------------------------------------------------------------
 # ---------------------------------------- Auxiliary mathematical functions --------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
@@ -501,6 +501,7 @@ def build_smooth_wing_dict(bird_cg, bird_weight, segment_span, full_span_frac, f
     }
 
     return wing_dict
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 # --------------------------- Function that creates the smoothed final wing dictionary ---------------------------------
