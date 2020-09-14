@@ -29,7 +29,7 @@ all_gull_wing_dicts = []
 
 # -------------------------------  Set the test conditions -------------------------------
 velocity_list = [10]  # selected test velocities
-alpha_list = np.arange(-10.0, 10.0, 1.0)  # selected angle of attacks
+alpha_list = np.arange(-10.0, 11.0, 1.0)  # selected angle of attacks
 density = 1.225
 dyn_vis = 1.81E-5
 kin_vis = dyn_vis/density

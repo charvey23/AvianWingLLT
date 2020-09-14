@@ -37,7 +37,7 @@ def run_machupx(curr_wing_name, test_v, test_aoa, density, kin_vis, curr_wing_di
 
         # solve and save the loads
         results = my_scene.solve_forces(dimensional=True, non_dimensional=True,
-                                        verbose=True, report_by_segment=True, filename=abs_res_path)
+                                        verbose=False, report_by_segment=True, filename=abs_res_path)
 
         # save the distributions if no error was thrown above
         dist_file = curr_wing_name + "_U" + str(test_v) + "_alpha" + str(test_aoa) + "_dist.json"
