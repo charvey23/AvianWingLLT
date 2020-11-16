@@ -33,12 +33,17 @@ alpha_list = np.arange(-10.0, 11.0, 1.0)  # selected angle of attacks
 density = 1.225
 dyn_vis = 1.81E-5
 kin_vis = dyn_vis/density
-
+tol_con = 1E-6
 # ------------------------------- Iterate through each wing shape ---------------------------------------
 # loops through each wing configuration in the data sheet by row: Currently only goes through first 10
 wt_wings = [52686, 52695, 52770, 42597, 52648, 52586, 42642, 42567, 42666]
+# range(20047, len(wing_data.index))
+for x in wt_wings:
 
-for x in range(0, len(wing_data.index)):
+    # skip wind tunnel wings that have already been done
+    if x in wt_wings:
+        continue
+
     # define the current wing name
     curr_wing_name = wing_data["species"][x] + "_WingID" + wing_data["WingID"][x] + wing_data["TestID"][
         x] + "_Frame" + str(wing_data["frameID"][x])
@@ -182,44 +187,41 @@ for x in range(0, len(wing_data.index)):
 
                 # set the solver information
                 max_it = 1E2
-                tol_con = 1E-8
                 relax = 1
 
                 if __name__ == "__main__":
 
                     message_str = "1st Attempt: maximum iterations = %d and relaxation= %.2f" % (max_it,  relax)
                     print(message_str)
-                    print('---------------------------------------')
+
                     # create input file and try to solve
                     converged, err, final_geom, \
                     mac_curr, results, curr_dist = rbw.run_machupx(curr_wing_name, test_v, test_aoa, density, kin_vis,
                                                                    curr_wing_dict, max_it, tol_con, relax)
 
                     # adjust the relaxation factor and iterations if did not converge - don't bother with the positives
-                    if converged == 0 and alpha < 0:
+                    if converged == 0:
                         max_it = 1E3
-                        tol_con = 1E-8
                         relax = 0.8
 
                         message_str = "2nd Attempt: maximum iterations = %d and relaxation= %.2f" % (max_it,  relax)
                         print('---------------------------------------')
                         print(message_str)
-                        print('---------------------------------------')
+
                         # create input file and try to solve
                         converged, err, final_geom, \
                         mac_curr, results, curr_dist = rbw.run_machupx(curr_wing_name, test_v, test_aoa,
                                                                        density, kin_vis, curr_wing_dict,
                                                                        max_it, tol_con, relax)
                     # adjust the relaxation factor and iterations if did not converge - don't bother with the positives
-                    if converged == 0 and alpha < 0:
+                    if converged == 0:
                         max_it = 1E3
-                        tol_con = 1E-8
                         relax = 0.5
 
                         message_str = "3rd Attempt: maximum iterations = %d and relaxation= %.2f" % (max_it,  relax)
                         print('---------------------------------------')
                         print(message_str)
-                        print('---------------------------------------')
+
                         # create input file and try to solve
                         converged, err, final_geom, \
                         mac_curr, results, curr_dist = rbw.run_machupx(curr_wing_name, test_v, test_aoa,
@@ -229,12 +231,11 @@ for x in range(0, len(wing_data.index)):
                     # adjust the relaxation factor and iterations if did not converge
                     if converged == 0:
                         max_it = 1E4
-                        tol_con = 1E-8
                         relax = 0.01
                         message_str = "4th Attempt: maximum iterations = %d and relaxation= %.2f" % (max_it,  relax)
                         print('---------------------------------------')
                         print(message_str)
-                        print('---------------------------------------')
+
                         # create input file and try to solve
                         converged, err, final_geom, \
                         mac_curr, results, curr_dist = rbw.run_machupx(curr_wing_name, test_v, test_aoa,
