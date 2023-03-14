@@ -40,10 +40,6 @@ wt_wings = [52686, 52695, 52770, 42597, 52648, 52586, 42642, 42567, 42666]
 # range(20047, len(wing_data.index))
 for x in wt_wings:
 
-    # skip wind tunnel wings that have already been done
-    if x in wt_wings:
-        continue
-
     # define the current wing name
     curr_wing_name = wing_data["species"][x] + "_WingID" + wing_data["WingID"][x] + wing_data["TestID"][
         x] + "_Frame" + str(wing_data["frameID"][x])
